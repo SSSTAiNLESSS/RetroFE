@@ -89,6 +89,7 @@ TweenAlgorithm Tween::getTweenType(std::string name)
         tweenTypeMap_["easeinoutquartic"] = EASE_INOUT_QUARTIC;
         tweenTypeMap_["easeinquintic"] = EASE_IN_QUINTIC;
         tweenTypeMap_["easeoutquintic"] = EASE_OUT_QUINTIC;
+        tweenTypeMap_["easeinoutquintic"] = EASE_INOUT_QUINTIC;
         tweenTypeMap_["easeonoutquintic"] = EASE_INOUT_QUINTIC;
         tweenTypeMap_["easeinsine"] = EASE_IN_SINE;
         tweenTypeMap_["easeoutsine"] = EASE_OUT_SINE;
@@ -332,31 +333,37 @@ double Tween::easeInOutQuintic(double t, double d, double b, double c)
 
 double Tween::easeInSine(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     return -c * cos(t/d * (M_PI/2)) + c + b;
 };
 
 double Tween::easeOutSine(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     return c * sin(t/d * (M_PI/2)) + b;
 };
 
 double Tween::easeInOutSine(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     return -c/2 * (cos( M_PI*t/d) - 1) + b;
 };
 
 double Tween::easeInExponential(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     return c * pow( 2, 10 * (t/d - 1) ) + b;
 };
 
 double Tween::easeOutExponential(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     return c * ( - pow( 2, -10 * t/d ) + 1 ) + b;
 };
 
 double Tween::easeInOutExponential(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     t /= d/2;
     if (t < 1) return c/2 * pow( 2, 10 * (t - 1) ) + b;
     t--;
@@ -365,22 +372,28 @@ double Tween::easeInOutExponential(double t, double d, double b, double c)
 
 double Tween::easeInCircular(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     t /= d;
+    if (t > 1) t = 1;
     return -c * (sqrt(1 - t*t) - 1) + b;
 };
 
 
 double Tween::easeOutCircular(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     t /= d;
     t--;
+    if (t < -1) t = -1; // t-- makes it range -1 to 0
     return c * sqrt(1 - t*t) + b;
 };
 
 double Tween::easeInOutCircular(double t, double d, double b, double c)
 {
+    if(d == 0) return b;
     t /= d/2;
     if (t < 1) return -c/2 * (sqrt(1 - t*t) - 1) + b;
     t -= 2;
+    if (t < -1) t = -1; // safeguard
     return c/2 * (sqrt(1 - t*t) + 1) + b;
 }
