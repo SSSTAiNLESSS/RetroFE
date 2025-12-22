@@ -117,13 +117,15 @@ public:
     void  addPlaylist();
     void  removePlaylist();
     void  togglePlaylist();
-    void  updateLastPlayedPlaylist( Item *item );
-    void  reallocateMenuSpritePoints();
+    void updateLastPlayedPlaylist( Item *item );
+    void updatePlaylistMenu();
+    void reallocateMenuSpritePoints();
     bool  isMenuScrolling();
     bool  isPlaying();
     void  resetScrollPeriod();
     void  updateScrollPeriod();
     void  scroll(bool forward);
+    void  scrollPlaylist(bool forward);
     bool  hasSubs();
     int   getLayoutWidth(int monitor);
     int   getLayoutHeight(int monitor);
@@ -179,6 +181,7 @@ private:
     float minShowTime_;
     float elapsedTime_;
     CollectionInfo::Playlists_T::iterator playlist_;
+    std::vector<Item *> playlistItems_;
     std::vector<int> layoutWidth_;
     std::vector<int> layoutHeight_;
     bool jukebox_;

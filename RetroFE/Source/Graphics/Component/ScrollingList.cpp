@@ -47,11 +47,13 @@ ScrollingList::ScrollingList( Configuration &c,
                               Font          *font,
                               std::string    layoutKey,
                               std::string    imageType,
-                              std::string    videoType)
+                              std::string    videoType,
+                              bool           playlistMode)
     : Component( p )
     , horizontalScroll( false )
     , layoutMode_( layoutMode )
     , commonMode_( commonMode )
+    , playlistMode_( playlistMode )
     , spriteList_( NULL )
     , scrollPoints_( NULL )
     , tweenPoints_( NULL )
@@ -76,6 +78,7 @@ ScrollingList::ScrollingList( const ScrollingList &copy )
     , horizontalScroll( copy.horizontalScroll )
     , layoutMode_( copy.layoutMode_ )
     , commonMode_( copy.commonMode_ )
+    , playlistMode_( copy.playlistMode_ )
     , spriteList_( NULL )
     , itemIndex_( 0 )
     , selectedOffsetIndex_( copy.selectedOffsetIndex_ )

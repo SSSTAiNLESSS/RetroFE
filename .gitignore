@@ -10,3 +10,23 @@ Configuration/Configuration/bin/**
 Configuration/Configuration/obj/**
 Artifacts/**
 
+# Runtime Content (User Data)
+collections/
+layouts/
+meta/
+
+# Documentation Scrapes & Agent Context
+docs/
+GEMINI.md
+.gemini/
+
+# IDE & System
+.vs/
+*.user
+*.db
+
+# Binaries & Logs
+*.exe
+*.log
+*.zip
+layout.xml

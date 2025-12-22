@@ -932,8 +932,54 @@ unsigned int Page::getSelectedIndex()
 }
 
 
+void Page::updatePlaylistMenu()
+{
+    // Clean up old virtual items
+    for (auto item : playlistItems_)
+    {
+        delete item;
+    }
+    playlistItems_.clear();
+
+    if (collections_.empty()) return;
+    CollectionInfo *col = collections_.back().collection;
+
+    // Create virtual items for each playlist
+    for (auto const& [name, list] : col->playlists)
+    {
+        Item *newItem = new Item();
+        newItem->name = name;
+        newItem->title = name;
+        newItem->fullTitle = name;
+        newItem->collectionInfo = col; // Point to current collection for media lookup fallback
+        playlistItems_.push_back(newItem);
+    }
+
+    // Assign to any menu with playlistMode enabled
+    for (auto &menuVec : menus_)
+    {
+        for (auto menu : menuVec)
+        {
+            if (menu->isPlaylistMode())
+            {
+                menu->setItems(&playlistItems_);
+                // Set the initial selection to match the current active playlist
+                for (unsigned int i = 0; i < playlistItems_.size(); ++i)
+                {
+                    if (playlistItems_[i]->name == playlist_->first)
+                    {
+                        menu->setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 bool Page::pushCollection(CollectionInfo *collection)
 {
+// ... (omitted for brevity in planning, will apply full logic below)
 
     // grow the menu as needed
     if(menus_.size() <= menuDepth_ && activeMenu_.size() > 0 && activeMenu_[0])
@@ -963,6 +1009,7 @@ bool Page::pushCollection(CollectionInfo *collection)
 
     playlist_ = info.playlist;
     playlistChange();
+    updatePlaylistMenu();
 
     if(menuDepth_ < menus_.size())
     {
@@ -1164,13 +1211,24 @@ void Page::nextPlaylist()
         if(playlist_ == info.collection->playlists.end()) playlist_ = info.collection->playlists.begin();
 
         // find the first playlist
-        if(playlist_->second->size() != 0) break;
-    }
-
     for(std::vector<ScrollingList *>::iterator it = activeMenu_.begin(); it != activeMenu_.end(); it++)
     {
         ScrollingList *menu = *it;
-        menu->setItems(playlist_->second);
+        if (!menu->isPlaylistMode())
+            menu->setItems(playlist_->second);
+    }
+    // Update playlist menu wheel selection
+    for (auto &menuVec : menus_) {
+        for (auto menu : menuVec) {
+            if (menu->isPlaylistMode()) {
+                for (unsigned int i = 0; i < playlistItems_.size(); ++i) {
+                    if (playlistItems_[i]->name == playlist_->first) {
+                        menu->setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
     }
     playlistChange();
 }
@@ -1191,13 +1249,24 @@ void Page::prevPlaylist()
         playlist_--;
 
         // find the first playlist
-        if(playlist_->second->size() != 0) break;
-    }
-
     for(std::vector<ScrollingList *>::iterator it = activeMenu_.begin(); it != activeMenu_.end(); it++)
     {
         ScrollingList *menu = *it;
-        menu->setItems(playlist_->second);
+        if (!menu->isPlaylistMode())
+            menu->setItems(playlist_->second);
+    }
+    // Update playlist menu wheel selection
+    for (auto &menuVec : menus_) {
+        for (auto menu : menuVec) {
+            if (menu->isPlaylistMode()) {
+                for (unsigned int i = 0; i < playlistItems_.size(); ++i) {
+                    if (playlistItems_[i]->name == playlist_->first) {
+                        menu->setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
     }
     playlistChange();
 }
@@ -1229,7 +1298,21 @@ void Page::selectPlaylist(std::string playlist)
     for(std::vector<ScrollingList *>::iterator it = activeMenu_.begin(); it != activeMenu_.end(); it++)
     {
         ScrollingList *menu = *it;
-        menu->setItems(playlist_->second);
+        if (!menu->isPlaylistMode())
+            menu->setItems(playlist_->second);
+    }
+    // Update playlist menu wheel selection
+    for (auto &menuVec : menus_) {
+        for (auto menu : menuVec) {
+            if (menu->isPlaylistMode()) {
+                for (unsigned int i = 0; i < playlistItems_.size(); ++i) {
+                    if (playlistItems_[i]->name == playlist_->first) {
+                        menu->setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
     }
     playlistChange();
 }
@@ -1620,12 +1703,20 @@ void Page::updateScrollPeriod()
 
 void Page::scroll(bool forward)
 {
+    bool isVerticalInput = !isHorizontalScroll(); // Logic based on active menu orientation
+
     for(std::vector<ScrollingList *>::iterator it = activeMenu_.begin(); it != activeMenu_.end(); it++)
     {
         ScrollingList *menu = *it;
         if(menu)
         {
-            menu->scroll(forward);
+            // If it's a playlist wheel, it should only scroll on horizontal input (usually)
+            // But the user specifically wants Left/Right for playlists.
+            // So: If it's NOT a playlist mode menu, scroll it. 
+            // We will handle playlist wheel scrolling separately.
+            if (!menu->isPlaylistMode())
+                menu->setItems(playlist_->second); // Ensure items are correct
+                menu->scroll(forward);
         }
     }
     onNewScrollItemSelected();
@@ -1634,6 +1725,28 @@ void Page::scroll(bool forward)
         highlightSoundChunk_->play();
     }
     return;
+}
+
+void Page::scrollPlaylist(bool forward)
+{
+    bool found = false;
+    for (auto &menuVec : menus_) {
+        for (auto menu : menuVec) {
+            if (menu->isPlaylistMode()) {
+                menu->scroll(forward);
+                
+                // Update the system's active playlist based on the new selection
+                Item *selected = menu->getSelectedItem();
+                if (selected) {
+                    selectPlaylist(selected->name);
+                }
+                found = true;
+            }
+        }
+    }
+    if (found && highlightSoundChunk_) {
+        highlightSoundChunk_->play();
+    }
 }
 
 

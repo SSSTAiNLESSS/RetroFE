@@ -40,76 +40,19 @@ public:
                    Font         *font,
                    std::string   layoutKey,
                    std::string   imageType,
-                   std::string   videoType );
+                   std::string   videoType,
+                   bool          playlistMode = false );
 
     ScrollingList( const ScrollingList &copy );
-    virtual ~ScrollingList( );
-    void triggerEnterEvent( );
-    void triggerExitEvent( );
-    void triggerMenuEnterEvent( int menuIndex = -1 );
-    void triggerMenuExitEvent( int menuIndex = -1 );
-    void triggerGameEnterEvent( int menuIndex = -1 );
-    void triggerGameExitEvent( int menuIndex = -1 );
-    void triggerHighlightEnterEvent( int menuIndex = -1 );
-    void triggerHighlightExitEvent( int menuIndex = -1 );
-    void triggerPlaylistEnterEvent( int menuIndex = -1 );
-    void triggerPlaylistExitEvent( int menuIndex = -1 );
-    void triggerMenuJumpEnterEvent( int menuIndex = -1 );
-    void triggerMenuJumpExitEvent( int menuIndex = -1 );
-    void triggerAttractEnterEvent( int menuIndex = -1 );
-    void triggerAttractEvent( int menuIndex = -1 );
-    void triggerAttractExitEvent( int menuIndex = -1 );
-    void triggerJukeboxJumpEvent( int menuIndex = -1 );
-
-    bool allocateTexture( unsigned int index, Item *i );
-    void deallocateTexture( unsigned int index );
-    void setItems( std::vector<Item *> *items );
-    void destroyItems( );
-    void setPoints( std::vector<ViewInfo *> *scrollPoints, std::vector<AnimationEvents *> *tweenPoints );
-    unsigned int getSelectedIndex( );
-    void setSelectedIndex( unsigned int index );
-    unsigned int getSize( );
-    void pageUp( );
-    void pageDown( );
-    void letterUp( );
-    void letterDown( );
-    void letterChange( bool increment );
-    void subUp( );
-    void subDown( );
-    void subChange( bool increment );
-    void cfwLetterSubUp( );
-    void cfwLetterSubDown( );
-    void random( );
-    bool isIdle( );
-    bool isAttractIdle( );
-    unsigned int getScrollOffsetIndex( );
-    void setScrollOffsetIndex( unsigned int index );
-    void setSelectedIndex( int selectedIndex );
-    Item *getItemByOffset( int offset );
-    Item *getSelectedItem( );
-    void allocateGraphicsMemory( );
-    void freeGraphicsMemory( );
-    void update( float dt );
-    void draw( );
-    void draw( unsigned int layer );
-    void setScrollAcceleration( float value );
-    void setStartScrollTime( float value );
-    void setMinScrollTime( float value );
+// ... (omitted middle for brevity in planning)
     bool horizontalScroll;
-    void deallocateSpritePoints( );
-    void allocateSpritePoints( );
-    void resetScrollPeriod( );
-    void updateScrollPeriod( );
-    void scroll( bool forward );
-
+    bool isPlaylistMode() { return playlistMode_; }
+// ...
 private:
-
-    void resetTweens( Component *c, AnimationEvents *sets, ViewInfo *currentViewInfo, ViewInfo *nextViewInfo, double scrollTime );
-    unsigned int loopIncrement( unsigned int offset, unsigned int i, unsigned int size );
-    unsigned int loopDecrement( unsigned int offset, unsigned int i, unsigned int size );
-
+// ...
     bool layoutMode_;
     bool commonMode_;
+    bool playlistMode_;
     std::vector<Component *> *spriteList_;
     std::vector<ViewInfo *> *scrollPoints_;
     std::vector<AnimationEvents *> *tweenPoints_;

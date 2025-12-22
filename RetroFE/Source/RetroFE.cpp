@@ -1453,43 +1453,43 @@ RetroFE::RETROFE_STATE RetroFE::processUserInput( Page *page )
     }
 
     // Handle next/previous game inputs
-    if ( page->isHorizontalScroll( ) )
+    bool gameIsHorizontal = page->isHorizontalScroll();
+
+    if ( (gameIsHorizontal && input_.keystate(UserInput::KeyCodeRight)) || 
+         (!gameIsHorizontal && input_.keystate(UserInput::KeyCodeDown)) )
     {
-        if (input_.keystate(UserInput::KeyCodeRight))
-        {
-            attract_.reset( );
-            page->setScrolling(Page::ScrollDirectionForward);
-            page->scroll(true);
-            page->updateScrollPeriod( );
-            return state;
-        }
-        else if (input_.keystate(UserInput::KeyCodeLeft))
-        {
-            attract_.reset( );
-            page->setScrolling(Page::ScrollDirectionBack);
-            page->scroll(false);
-            page->updateScrollPeriod( );
-            return state;
-        }
+        attract_.reset( );
+        page->setScrolling(Page::ScrollDirectionForward);
+        page->scroll(true);
+        page->updateScrollPeriod( );
+        return state;
     }
-    else
+    else if ( (gameIsHorizontal && input_.keystate(UserInput::KeyCodeLeft)) || 
+              (!gameIsHorizontal && input_.keystate(UserInput::KeyCodeUp)) )
     {
-        if (input_.keystate(UserInput::KeyCodeDown))
-        {
-            attract_.reset( );
-            page->setScrolling(Page::ScrollDirectionForward);
-            page->scroll(true);
-            page->updateScrollPeriod( );
-            return state;
-        }
-        else if (input_.keystate(UserInput::KeyCodeUp))
-        {
-            attract_.reset( );
-            page->setScrolling(Page::ScrollDirectionBack);
-            page->scroll(false);
-            page->updateScrollPeriod( );
-            return state;
-        }
+        attract_.reset( );
+        page->setScrolling(Page::ScrollDirectionBack);
+        page->scroll(false);
+        page->updateScrollPeriod( );
+        return state;
+    }
+    else if ( (gameIsHorizontal && input_.keystate(UserInput::KeyCodeDown)) || 
+              (!gameIsHorizontal && input_.keystate(UserInput::KeyCodeRight)) )
+    {
+        attract_.reset( );
+        page->setScrolling(Page::ScrollDirectionForward);
+        page->scrollPlaylist(true);
+        page->updateScrollPeriod( );
+        return state;
+    }
+    else if ( (gameIsHorizontal && input_.keystate(UserInput::KeyCodeUp)) || 
+              (!gameIsHorizontal && input_.keystate(UserInput::KeyCodeLeft)) )
+    {
+        attract_.reset( );
+        page->setScrolling(Page::ScrollDirectionBack);
+        page->scrollPlaylist(false);
+        page->updateScrollPeriod( );
+        return state;
     }
 
     // Ignore other keys while the menu is scrolling

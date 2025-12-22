@@ -1012,6 +1012,7 @@ ScrollingList * PageBuilder::buildMenu(xml_node<> *menuXml, Page &page)
 
     bool layoutMode = false;
     bool commonMode = false;
+    bool playlistMode = false;
     if(modeXml)
     {
         std::string sysMode = modeXml->value();
@@ -1028,12 +1029,16 @@ ScrollingList * PageBuilder::buildMenu(xml_node<> *menuXml, Page &page)
             layoutMode = true;
             commonMode = true;
         }
+        if(sysMode == "playlist")
+        {
+            playlistMode = true;
+        }
     }
 
     // on default, text will be rendered to the menu. Preload it into cache.
     Font *font = addFont(itemDefaults, NULL);
 
-    menu = new ScrollingList(config_, page, layoutMode, commonMode, font, layoutKey, imageType, videoType);
+    menu = new ScrollingList(config_, page, layoutMode, commonMode, font, layoutKey, imageType, videoType, playlistMode);
     buildViewInfo(menuXml, menu->baseViewInfo);
 
     if(scrollTimeXml)
