@@ -25,6 +25,7 @@
 #include <locale>
 #include <sstream>
 #include <fstream>
+#include <dirent.h>
 #ifdef WIN32
 #include <windows.h>
 #include <cstring>
@@ -35,27 +36,65 @@ Launcher::Launcher(Configuration &c)
 {
 }
 
-bool Launcher::run(std::string collection, Item *collectionItem)
+std::string Launcher::resolveLauncherName(Item *collectionItem)
 {
     std::string launcherName = collectionItem->collectionInfo->launcher;
-    std::string executablePath;
-    std::string selectedItemsDirectory;
-    std::string selectedItemsPath;
-    std::string extensionstr;
-    std::string matchedExtension;
-    std::string args;
+    std::string collectionPath = Utils::combinePath( Configuration::absolutePath, "collections", collectionItem->collectionInfo->name);
+    std::string launchersDir = Utils::combinePath( collectionPath, "launchers");
+    std::string launcherFile = Utils::combinePath( launchersDir, collectionItem->name + ".conf" );
 
-    std::string launcherFile = Utils::combinePath( Configuration::absolutePath, "collections", collectionItem->collectionInfo->name, "launchers", collectionItem->name + ".conf" );
     std::ifstream launcherStream( launcherFile.c_str( ) );
     if (launcherStream.good( )) // Launcher file found
     {
         std::string line;
         if (std::getline( launcherStream, line)) // Launcher found
         {
-            launcherName = line;
+            launcherName = Utils::trimEnds(line);
         }
+        return launcherName;
     }
+    
+    // Reverse lookup: Check if this game is listed in any <Launcher>.conf file in the directory
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir (launchersDir.c_str())) != NULL) {
+        while ((ent = readdir (dir)) != NULL) {
+            std::string filename = ent->d_name;
+            // Check for .conf files
+            if (filename.length() > 5 && filename.substr(filename.length() - 5) == ".conf") {
+                 std::string fullPath = Utils::combinePath(launchersDir, filename);
+                 std::ifstream f(fullPath.c_str());
+                 if (f.good()) {
+                     std::string line;
+                     while (std::getline(f, line)) {
+                         if (Utils::trimEnds(line) == collectionItem->name) {
+                             launcherName = filename.substr(0, filename.length() - 5);
+                             f.close();
+                             closedir(dir);
+                             return launcherName;
+                         }
+                     }
+                     f.close();
+                 }
+            }
+        }
+        closedir (dir);
+    }
+    
+    return launcherName;
+}
+
+bool Launcher::run(std::string collection, Item *collectionItem)
+{
+    std::string launcherName = resolveLauncherName(collectionItem);
     launcherName = Utils::toLower(launcherName);
+
+    std::string executablePath;
+    std::string selectedItemsDirectory;
+    std::string selectedItemsPath;
+    std::string extensionstr;
+    std::string matchedExtension;
+    std::string args;
 
     if(!launcherExecutable(executablePath, launcherName))
     {
@@ -141,17 +180,7 @@ void Launcher::LEDBlinky( int command, std::string collection, Item *collectionI
 		wait = true;
 	if ( command == 8 )
 	{
-		std::string launcherName = collectionItem->collectionInfo->launcher;
-		std::string launcherFile = Utils::combinePath( Configuration::absolutePath, "collections", collectionItem->collectionInfo->name, "launchers", collectionItem->name + ".conf" );
-		std::ifstream launcherStream( launcherFile.c_str( ) );
-		if (launcherStream.good( )) // Launcher file found
-		{
-			std::string line;
-			if (std::getline( launcherStream, line)) // Launcher found
-			{
-				launcherName = line;
-			}
-		}
+		std::string launcherName = resolveLauncherName(collectionItem);
 		launcherName = Utils::toLower( launcherName );
 		std::string emulator = collection;
 		config_.getProperty("launchers." + launcherName + ".LEDBlinkyEmulator", emulator );
@@ -159,17 +188,7 @@ void Launcher::LEDBlinky( int command, std::string collection, Item *collectionI
 	}
 	if ( command == 3 || command == 9 )
 	{
-		std::string launcherName = collectionItem->collectionInfo->launcher;
-		std::string launcherFile = Utils::combinePath( Configuration::absolutePath, "collections", collectionItem->collectionInfo->name, "launchers", collectionItem->name + ".conf" );
-		std::ifstream launcherStream( launcherFile.c_str( ) );
-		if (launcherStream.good( )) // Launcher file found
-		{
-			std::string line;
-			if (std::getline( launcherStream, line)) // Launcher found
-			{
-				launcherName = line;
-			}
-		}
+		std::string launcherName = resolveLauncherName(collectionItem);
 		launcherName = Utils::toLower( launcherName );
 		std::string emulator = launcherName;
 		config_.getProperty("launchers." + launcherName + ".LEDBlinkyEmulator", emulator );

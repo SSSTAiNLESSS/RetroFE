@@ -34,6 +34,8 @@ private:
         const std::string &search,
         const std::string &replace);
 
+    std::string resolveLauncherName(Item *collectionItem);
+
     bool launcherName(std::string &launcherName, std::string collection);
     bool launcherExecutable(std::string &executable, std::string launcherName);
     bool launcherArgs(std::string &args, std::string launcherName);
