@@ -204,9 +204,18 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
     }
 
     std::string line; 
+    bool firstLine = true;
 
     while(std::getline(includeStream, line))
     {
+        // Strip UTF-8 BOM if present on the first line
+        if (firstLine) {
+            if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF && static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF) {
+                line = line.substr(3);
+            }
+            firstLine = false;
+        }
+
         line = Utils::filterComments(line);
         
         if (!line.empty())
@@ -222,8 +231,8 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
                 // We assume SystemName:GameName. 
                 // Playlists use _System:Game, supporting both for consistency/safety.
                 
-                std::string part1 = line.substr(0, separatorPos);
-                std::string part2 = line.substr(separatorPos + 1);
+                std::string part1 = Utils::trimEnds(line.substr(0, separatorPos));
+                std::string part2 = Utils::trimEnds(line.substr(separatorPos + 1));
 
                 // Basic validation: neither part should be empty
                 if (!part1.empty() && !part2.empty()) {
@@ -256,12 +265,14 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
                         conf_.getProperty("collections." + collectionName + ".metadata.type", metadataType);
                         conf_.getProperty("collections." + collectionName + ".metadata.path", metadataPath);
 
-                        itemCollectionInfo = new CollectionInfo(collectionName, listItemsPath, extensions, metadataType, metadataPath);
+                                                // Import the foreign collection's settings.conf to ensure media paths are loaded
+                                                std::string foreignSettings = Utils::combinePath(Configuration::absolutePath, "collections", collectionName, "settings.conf");
+                                                conf_.import("collections." + collectionName, foreignSettings);
                         
-                        // Important: Get launcher
+                                                itemCollectionInfo = new CollectionInfo(collectionName, listItemsPath, extensions, metadataType, metadataPath);
                         conf_.getProperty("collections." + collectionName + ".launcher", itemCollectionInfo->launcher);
                         
-                        // We need to attach this foreign collection to the main one so it gets deleted properly
+                        // Populate media paths (logic copied from buildCollection)
                         // CollectionInfo has a way to own subcollections? 
                         // It has addSubcollection which merges items, but we just want to own the pointer.
                         // Let's rely on the Item owning it? No, Item doesn't delete collectionInfo.
@@ -287,6 +298,11 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
                 i->title = gameName;
                 i->collectionInfo = itemCollectionInfo;
 
+                // Inject metadata for this specific item if it's from a foreign collection
+                if (itemCollectionInfo != info) {
+                    metaDB_.injectItemMetadata(i);
+                }
+
                 list[line] = i;
             }
         }
@@ -305,9 +321,18 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
     }
 
     std::string line; 
+    bool firstLine = true;
 
     while(std::getline(includeStream, line))
     {
+        // Strip UTF-8 BOM if present on the first line
+        if (firstLine) {
+            if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF && static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF) {
+                line = line.substr(3);
+            }
+            firstLine = false;
+        }
+
         line = Utils::filterComments(line);
         
         if (!line.empty())
@@ -319,8 +344,8 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
 
             size_t separatorPos = line.find(':');
             if (separatorPos != std::string::npos) {
-                std::string part1 = line.substr(0, separatorPos);
-                std::string part2 = line.substr(separatorPos + 1);
+                std::string part1 = Utils::trimEnds(line.substr(0, separatorPos));
+                std::string part2 = Utils::trimEnds(line.substr(separatorPos + 1));
 
                 if (!part1.empty() && !part2.empty()) {
                     if (part1[0] == '_') {
@@ -340,6 +365,10 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
                         conf_.getProperty("collections." + collectionName + ".list.extensions", extensions);
                         conf_.getProperty("collections." + collectionName + ".metadata.type", metadataType);
                         conf_.getProperty("collections." + collectionName + ".metadata.path", metadataPath);
+
+                        // Import the foreign collection's settings.conf to ensure media paths are loaded
+                        std::string foreignSettings = Utils::combinePath(Configuration::absolutePath, "collections", collectionName, "settings.conf");
+                        conf_.import("collections." + collectionName, foreignSettings);
 
                         itemCollectionInfo = new CollectionInfo(collectionName, listItemsPath, extensions, metadataType, metadataPath);
                         conf_.getProperty("collections." + collectionName + ".launcher", itemCollectionInfo->launcher);
@@ -369,6 +398,10 @@ bool CollectionInfoBuilder::ImportBasicList(CollectionInfo *info, std::string fi
                 i->name = gameName;
                 i->title = gameName;
                 i->collectionInfo = itemCollectionInfo;
+
+                if (itemCollectionInfo != info) {
+                    metaDB_.injectItemMetadata(i);
+                }
 
                 list.push_back(i);
             }
