@@ -32,6 +32,12 @@ public:
     void sortPlaylists();
     void addSubcollection(CollectionInfo *info);
     void extensionList(std::vector<std::string> &extensions);
+    
+    // Manage foreign collection objects created during import
+    std::vector<CollectionInfo*> foreignCollections;
+    void addForeignCollection(CollectionInfo* info);
+
+    enum class SortType {
     std::string name;
     std::string lowercaseName();
     std::string listpath;
