@@ -48,6 +48,8 @@ CollectionInfo::CollectionInfo(std::string name,
     , hasSubs(false)
     , metadataPath_(metadataPath)
 	, extensions_(extensions)
+    , currentSort(SortType::TITLE)
+    , playerFilterState(0)
 {
 }
 
@@ -174,6 +176,59 @@ void CollectionInfo::addSubcollection(CollectionInfo *newinfo)
     items.insert(items.begin(), newinfo->items.begin(), newinfo->items.end());
 }
 
+void CollectionInfo::cycleSort()
+{
+    int next = (int)currentSort + 1;
+    if (next > (int)SortType::SCORE) {
+        next = 0;
+    }
+    currentSort = (SortType)next;
+    sortItems();
+}
+
+bool CollectionInfo::compareItems(Item *lhs, Item *rhs)
+{
+    // Always respect folders first logic
+    if(lhs->leaf && !rhs->leaf) return true;
+    if(!lhs->leaf && rhs->leaf) return false;
+    
+    // Subcollection split logic
+    if(lhs->collectionInfo->subsSplit && lhs->collectionInfo != rhs->collectionInfo)
+        return lhs->collectionInfo->lowercaseName() < rhs->collectionInfo->lowercaseName();
+
+    // Menu sort check (if disabled, preserve order - mostly relevant for initialization)
+    if(!lhs->collectionInfo->menusort && !lhs->leaf && !rhs->leaf)
+        return false;
+
+    // Actual sorting logic
+    switch(currentSort) {
+        case SortType::YEAR:
+             if (lhs->year != rhs->year) return lhs->year < rhs->year;
+             break;
+        case SortType::PLAYERS:
+             if (lhs->numberPlayers != rhs->numberPlayers) return lhs->numberPlayers < rhs->numberPlayers;
+             break;
+        case SortType::MANUFACTURER:
+             if (lhs->manufacturer != rhs->manufacturer) return lhs->manufacturer < rhs->manufacturer;
+             break;
+        case SortType::GENRE:
+             if (lhs->genre != rhs->genre) return lhs->genre < rhs->genre;
+             break;
+        case SortType::RATING:
+             if (lhs->rating != rhs->rating) return lhs->rating > rhs->rating; // Higher rating first?
+             break;
+        case SortType::SCORE:
+             if (lhs->score != rhs->score) return lhs->score > rhs->score; // Higher score first?
+             break;
+        case SortType::TITLE:
+        default:
+             break;
+    }
+
+    // Fallback to title
+    return lhs->lowercaseFullTitle() < rhs->lowercaseFullTitle();
+}
+
 bool CollectionInfo::itemIsLess(Item *lhs, Item *rhs)
 {
     if(lhs->leaf && !rhs->leaf) return true;
@@ -188,9 +243,56 @@ bool CollectionInfo::itemIsLess(Item *lhs, Item *rhs)
 
 void CollectionInfo::sortItems()
 {
-    std::sort( items.begin(), items.end(), itemIsLess );
+    // Use lambda to call member function
+    std::sort( items.begin(), items.end(), [this](Item* a, Item* b) {
+        return this->compareItems(a, b);
+    });
 }
 
+void CollectionInfo::togglePlayerFilter()
+{
+    // Cycle state: 0(All) -> 1(1P) -> 2(2P) -> 3(4P) -> 0
+    playerFilterState++;
+    if (playerFilterState > 3) playerFilterState = 0;
+
+    Logger::write(Logger::ZONE_INFO, "CollectionInfo", "Toggling Player Filter. New State: " + Utils::toString(playerFilterState));
+
+    // Restore original items if we have them
+    if (!originalItems.empty()) {
+        items = originalItems;
+    } else {
+        // First time filtering, save original items
+        originalItems = items;
+    }
+
+    // If state is 0, we just restored, so we are done (but need to re-sort)
+    if (playerFilterState == 0) {
+        originalItems.clear(); // Clear backup to save memory/reset
+        sortItems();
+        return;
+    }
+
+    std::vector<Item *> filteredItems;
+    std::string targetPlayers;
+    
+    if (playerFilterState == 1) targetPlayers = "1";
+    else if (playerFilterState == 2) targetPlayers = "2";
+    else if (playerFilterState == 3) targetPlayers = "4";
+
+    // Filter
+    for (std::vector<Item *>::iterator it = items.begin(); it != items.end(); ++it) {
+        // Simple string check. Note: Metadata might be "1-2" or similar.
+        // For now, strict match or "contains" logic might be needed.
+        // Let's assume the metadata is clean "1", "2", "4" based on user request.
+        // Or check if it CONTAINS the digit.
+        if ((*it)->numberPlayers.find(targetPlayers) != std::string::npos) {
+            filteredItems.push_back(*it);
+        }
+    }
+
+    items = filteredItems;
+    sortItems();
+}
 
 void CollectionInfo::sortPlaylists()
 {

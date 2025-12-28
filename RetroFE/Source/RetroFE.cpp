@@ -1292,6 +1292,44 @@ bool RetroFE::run( )
             }
             break;
 
+        // Sort Request
+        case RETROFE_NEXT_SORT_REQUEST:
+            currentPage_->playlistExit( );
+            currentPage_->setScrolling(Page::ScrollDirectionIdle);
+            state = RETROFE_NEXT_SORT_EXIT;
+            break;
+
+        // Sort Exit
+        case RETROFE_NEXT_SORT_EXIT:
+            if (currentPage_->isIdle()) {
+                if(currentPage_->getCollectionInfo()) {
+                    currentPage_->getCollectionInfo()->cycleSort();
+                    currentPage_->setScrollOffsetIndex(0);
+                }
+                currentPage_->onNewItemSelected();
+                state = RETROFE_PLAYLIST_LOAD_ART;
+            }
+            break;
+
+        // Filter Request
+        case RETROFE_FILTER_PLAYERS_REQUEST:
+            currentPage_->playlistExit( );
+            currentPage_->setScrolling(Page::ScrollDirectionIdle);
+            state = RETROFE_FILTER_PLAYERS_EXIT;
+            break;
+
+        // Filter Exit
+        case RETROFE_FILTER_PLAYERS_EXIT:
+             if (currentPage_->isIdle()) {
+                if(currentPage_->getCollectionInfo()) {
+                    currentPage_->getCollectionInfo()->togglePlayerFilter();
+                    currentPage_->setScrollOffsetIndex(0);
+                }
+                currentPage_->onNewItemSelected();
+                state = RETROFE_PLAYLIST_LOAD_ART;
+            }
+            break;
+
         // Wait for splash mode animation to finish
         case RETROFE_NEW:
             if ( currentPage_->isIdle( ) )
@@ -1757,6 +1795,18 @@ RetroFE::RETROFE_STATE RetroFE::processUserInput( Page *page )
                 firstPlaylist_ = page->getPlaylistName( );
                 saveRetroFEState( );
             }
+        }
+
+        else if ( input_.keystate(UserInput::KeyCodeNextSort) )
+        {
+            attract_.reset( );
+            state = RETROFE_NEXT_SORT_REQUEST;
+        }
+
+        else if ( input_.keystate(UserInput::KeyCodeFilterPlayers) )
+        {
+            attract_.reset( );
+            state = RETROFE_FILTER_PLAYERS_REQUEST;
         }
     }
 

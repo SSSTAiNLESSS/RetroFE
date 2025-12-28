@@ -75,6 +75,8 @@ bool UserInput::initialize()
     MapKey("removePlaylist", KeyCodeRemovePlaylist, false);
     MapKey("togglePlaylist", KeyCodeTogglePlaylist, false);
     MapKey("random", KeyCodeRandom, false);
+    MapKey("nextSort", KeyCodeNextSort, false);
+    MapKey("filterPlayers", KeyCodeFilterPlayers, false);
     MapKey("menu", KeyCodeMenu, false);
     MapKey("reboot", KeyCodeReboot, false);
     MapKey("saveFirstPlaylist", KeyCodeSaveFirstPlaylist, false);

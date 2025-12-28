@@ -71,6 +71,8 @@ public:
         KeyCodeSkipBackwardp,
         KeyCodePause,
         KeyCodeRestart,
+        KeyCodeNextSort,
+        KeyCodeFilterPlayers,
         KeyCodeMax
     };
 
