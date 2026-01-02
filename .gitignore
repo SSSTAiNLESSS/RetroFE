@@ -9,4 +9,12 @@ Documentation/Manual/_build/*
 Configuration/Configuration/bin/**
 Configuration/Configuration/obj/**
 Artifacts/**
+AGENTS.md
+Builds/
+DevTools.bat
+GEMINI.md
+Scripts/branch_manager.ps1
+Scripts/build_and_store.ps1
+Website_RetroFE/
+submissions/
 
