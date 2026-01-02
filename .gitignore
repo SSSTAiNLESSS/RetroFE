@@ -19,4 +19,6 @@ Scripts/build_and_store.ps1
 Website_RetroFE/
 submissions/
 log.txt
+RetroFE/Build/
+RetroFE/Build_1_4/
 
