@@ -376,5 +376,6 @@ Once video playback is confirmed working:
 
 ---
 
-*VLC Implementation and Performance Optimizations by the CORE Team*
+*Original VLC implementation by RFSVIEIRA*
+*Current implementation and performance optimizations by the CORE Team*
 *Building a better RetroFE experience*

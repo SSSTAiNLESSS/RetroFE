@@ -199,8 +199,11 @@ Extensive inline documentation in:
 
 ## 🙏 Credits
 
-### Implementation
-- **CORE Team** - Complete VLC implementation and optimizations
+### Original Work
+- **RFSVIEIRA** - First VLC implementation, pioneering the migration path
+
+### Current Implementation
+- **CORE Team** - Complete VLC implementation with performance optimizations
 - **Claude (Anthropic)** - Development assistance
 
 ### Testing & Feedback
