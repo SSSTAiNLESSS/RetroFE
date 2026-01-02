@@ -45,8 +45,6 @@
 ```
 RetroFE/Source/Video/VLCVideo.cpp    (454 lines)
 RetroFE/Source/Video/VLCVideo.h      (90 lines)
-Scripts/deploy_test.bat               (deployment helper)
-BUILD_VLC.md                         (comprehensive docs)
 ```
 
 ### Modified Files
@@ -136,8 +134,8 @@ All GStreamer/GLib detection in CMake
 # Build with automatic VLC bundling
 .\Scripts\build_and_store.ps1
 
-# Deploy to test location
-.\Scripts\deploy_test.bat
+# Builds are saved to .\Builds\<timestamp>_<branch>\
+# Copy to your test location as needed
 ```
 
 ### For End Users
