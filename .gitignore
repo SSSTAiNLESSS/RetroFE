@@ -9,6 +9,7 @@ Documentation/Manual/_build/*
 Configuration/Configuration/bin/**
 Configuration/Configuration/obj/**
 Artifacts/**
+tools/
 AGENTS.md
 Builds/
 DevTools.bat
