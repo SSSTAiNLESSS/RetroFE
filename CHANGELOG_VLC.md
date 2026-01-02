@@ -207,7 +207,6 @@ Extensive inline documentation in:
 
 ### Current Implementation
 - **CORE Team** - Complete VLC implementation with performance optimizations
-- **Claude (Anthropic)** - Development assistance
 
 ### Testing & Feedback
 - Community testers who identified performance issues
