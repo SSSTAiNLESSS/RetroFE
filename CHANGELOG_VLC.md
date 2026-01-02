@@ -130,6 +130,9 @@ All GStreamer/GLib detection in CMake
 
 ### For Developers
 ```powershell
+# VLC SDK included in tools/vlc-sdk/
+# Runtime in tools/vlc-runtime.zip
+
 # Build with automatic VLC bundling
 .\Scripts\build_and_store.ps1
 

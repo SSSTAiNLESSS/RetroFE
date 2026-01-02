@@ -29,7 +29,23 @@ Before building, you need:
 2. **CMake** (version 2.8 or newer)
 3. **libVLC SDK for Windows (32-bit)**
 
-## Step 1: Download libVLC SDK
+## Step 1: VLC SDK Setup
+
+### Option A: Use Included SDK (RECOMMENDED)
+The VLC SDK is already included in the repository:
+```
+tools/vlc-sdk/         # SDK headers and libraries
+tools/vlc-runtime.zip  # Runtime DLLs and plugins
+```
+
+Extract the runtime if needed:
+```powershell
+# Extract runtime files (if not already done)
+Expand-Archive tools\vlc-runtime.zip -DestinationPath tools\vlc-runtime\
+```
+
+### Option B: Download VLC SDK (if needed)
+Only if the included SDK is missing or you need a different version:
 
 1. Download VLC 3.0.21 (32-bit) - **ZIP version**:
    - **Direct link (ZIP):** https://mirror.aarnet.edu.au/pub/videolan/vlc/3.0.21/win32/vlc-3.0.21-win32.zip
@@ -40,8 +56,6 @@ Before building, you need:
 # Download and extract
 Expand-Archive C:\libvlc\vlc-3.0.21-win32.zip -DestinationPath C:\libvlc\
 ```
-
-After extraction, the structure should be `C:\libvlc\vlc-3.0.21\` containing all VLC files.
 
 After extraction, verify you have:
 ```
@@ -89,11 +103,15 @@ Remove-Item -Recurse -Force .\RetroFE\Build\* -ErrorAction SilentlyContinue
 
 Generate Visual Studio solution with libVLC path:
 
+### Using Included SDK (RECOMMENDED):
+```powershell
+cmake -A Win32 -B .\RetroFE\Build -D LIBVLC_ROOT=.\tools\vlc-sdk -S .\RetroFE\Source
+```
+
+### Using Downloaded SDK:
 ```powershell
 cmake -A Win32 -B .\RetroFE\Build -D LIBVLC_ROOT=C:\libvlc\vlc-3.0.21 -S .\RetroFE\Source
 ```
-
-**If you extracted/installed to a different location, adjust the path accordingly.**
 
 **Expected output:**
 ```
@@ -131,10 +149,11 @@ Copy-Item -Recurse C:\libvlc\vlc-3.0.21\plugins .\RetroFE\Build\Release\
 
 **Option B: Use build_and_store.ps1 (RECOMMENDED - automatic bundling)**
 
-First, verify the libVLC path in the script matches your installation:
+The script automatically detects VLC in the tools folder. If using a custom location:
 ```powershell
 # Edit line 9 of Scripts\build_and_store.ps1 if needed:
-# $LIBVLC_ROOT = "C:\libvlc\vlc-3.0.21"
+# Default: $LIBVLC_ROOT = ".\tools\vlc-sdk"
+# Custom:  $LIBVLC_ROOT = "C:\libvlc\vlc-3.0.21"
 ```
 
 Then run:
