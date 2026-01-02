@@ -53,11 +53,13 @@ if(WIN32)
 	find_library(LIBVLC_LIBRARY libvlc
 		HINTS
 		"${LIBVLC_ROOT}/sdk/lib"
+		"${LIBVLC_ROOT}/lib/msvc"
 		"${LIBVLC_ROOT}/lib"
 	)
 	find_library(LIBVLCCORE_LIBRARY libvlccore
 		HINTS
 		"${LIBVLC_ROOT}/sdk/lib"
+		"${LIBVLC_ROOT}/lib/msvc"
 		"${LIBVLC_ROOT}/lib"
 	)
 
