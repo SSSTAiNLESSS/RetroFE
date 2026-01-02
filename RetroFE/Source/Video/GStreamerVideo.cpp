@@ -192,7 +192,7 @@ bool GStreamerVideo::play(std::string file)
     {
         if(!playbin_)
         {
-            playbin_ = gst_element_factory_make("playbin3", "player");
+            playbin_ = gst_element_factory_make("playbin", "player");
             videoBin_ = gst_bin_new("SinkBin");
             videoSink_  = gst_element_factory_make("fakesink", "video_sink");
             videoConvert_  = gst_element_factory_make("capsfilter", "video_convert");
