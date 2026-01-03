@@ -22,3 +22,11 @@ log.txt
 RetroFE/Build/
 RetroFE/Build_1_4/
 
+# AI Development (not for commits)
+.claude/
+CLAUDE.md
+reflections.json
+.vscode/
+build.log
+nul
+
