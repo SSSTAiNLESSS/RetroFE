@@ -1,5 +1,26 @@
 # RetroFE VLC Implementation Changelog
 
+## Version: VLC-1.1 (2026-07-22)
+### Bug Fix: Videos only played once (no looping)
+
+**Issue:** Background/preview videos played a single time and then froze on the last
+frame instead of looping.
+
+**Root cause:** `VLCVideo::eventCallback` handled `libvlc_MediaPlayerEndReached` by
+calling `libvlc_media_player_set_position()` + `libvlc_media_player_play()` directly.
+Restarting playback from inside a libVLC event callback is invalid — the callback runs on
+libVLC's own thread and the player is already in a stopped state, so the restart silently
+did nothing.
+
+**Fix (`RetroFE/Source/Video/VLCVideo.cpp` / `.h`):**
+- Loop via the `input-repeat` media option at load time (`input-repeat=65535` for
+  infinite when `numLoops == 0`, else `numLoops - 1`). libVLC repeats the input itself,
+  no callback restart needed.
+- `EndReached` now only marks the player stopped (fires once loops are exhausted).
+- Removed the now-unused `playCount_` member.
+
+---
+
 ## Version: VLC-1.0 (2026-01-02)
 ### Branch: `feature/vlc-replacement`
 ### Implementation: CORE Team
