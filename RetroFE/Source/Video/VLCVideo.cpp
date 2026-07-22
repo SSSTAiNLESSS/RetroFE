@@ -18,6 +18,7 @@
 #include "../Utility/Log.h"
 #include "../SDL.h"
 #include <cstring>
+#include <string>
 
 bool VLCVideo::initialized_ = false;
 libvlc_instance_t* VLCVideo::vlcInstance_ = nullptr;
@@ -33,7 +34,6 @@ VLCVideo::VLCVideo(int monitor)
     , pitch_(0)
     , isPlaying_(false)
     , paused_(false)
-    , playCount_(0)
     , numLoops_(0)
     , volume_(1.0f)
     , monitor_(monitor)
@@ -139,17 +139,10 @@ void VLCVideo::eventCallback(const struct libvlc_event_t* event, void* opaque)
     switch (event->type)
     {
         case libvlc_MediaPlayerEndReached:
-            video->playCount_++;
-            if (video->numLoops_ == 0 || video->playCount_ < video->numLoops_)
-            {
-                // Loop the video
-                libvlc_media_player_set_position(video->mediaPlayer_, 0.0f);
-                libvlc_media_player_play(video->mediaPlayer_);
-            }
-            else
-            {
-                video->isPlaying_ = false;
-            }
+            // libVLC handles looping via input-repeat, so this only fires once the
+            // requested number of plays is exhausted. Do NOT call any player-control
+            // function here (invalid from the event thread) - just mark it stopped.
+            video->isPlaying_ = false;
             break;
 
         case libvlc_MediaPlayerStopped:
@@ -182,6 +175,15 @@ bool VLCVideo::play(std::string file)
         Logger::write(Logger::ZONE_ERROR, "Video", "Failed to create media from file: " + file);
         return false;
     }
+
+    // Looping is handled by libVLC itself via the input-repeat option. Restarting
+    // playback from inside the end-of-stream event callback is invalid (the callback
+    // runs on libVLC's own thread and the player is already stopped) and was why
+    // videos only played once. numLoops_ == 0 means loop forever.
+    if (numLoops_ == 0)
+        libvlc_media_add_option(media_, "input-repeat=65535");
+    else if (numLoops_ > 1)
+        libvlc_media_add_option(media_, ("input-repeat=" + std::to_string(numLoops_ - 1)).c_str());
 
     // Create media player if it doesn't exist
     if (!mediaPlayer_)
@@ -279,7 +281,6 @@ bool VLCVideo::play(std::string file)
 
     currentFile_ = file;
     isPlaying_ = true;
-    playCount_ = 0;
     paused_ = false;
     frameReady_ = false;
 

@@ -74,7 +74,6 @@ private:
     // Playback state
     bool isPlaying_;
     bool paused_;
-    int playCount_;
     int numLoops_;
     std::string currentFile_;
 
