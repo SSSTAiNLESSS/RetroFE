@@ -42,22 +42,59 @@ Deliberately **not** carried across: the unrelated mixed-collections work sittin
 those commits on `data-modernization` (`1d4dc9f`, `7866e0e`, `4279a70`, `a81beb4`, `d6d7bdd`,
 merge `c4cf1b2`) and the roadmap/gitignore commits (`92baa40`, `2a90884`).
 
+### Teardown spike — BUILT, deployed, **not yet run** (2026-07-23)
+
+Commit `ad7d78e` — a deliberately revertable **SPIKE** commit. Open items 1–3 below were
+also closed in `bd45a7c`. Build is clean (Release, Win32, no warnings on `RetroFE.cpp`).
+
+What it does: **F5 forces a full page teardown + rebuild.**
+
+| Piece | Where | Note |
+|---|---|---|
+| `RETROFE_RELOAD_LAYOUT_REQUEST` enum | `RetroFE.h:64` | after `RETROFE_SPLASH_EXIT` |
+| F5 detection | `RetroFE.cpp` `processUserInput()` | raw `SDLK_F5`, `e.key.repeat == 0` |
+| Teardown/rebuild case | `RetroFE.cpp`, before `RETROFE_PLAYLIST_REQUEST` | mirrors `RETROFE_SPLASH_EXIT` |
+
+Design calls made, with reasons:
+- **Reused the `RETROFE_SPLASH_EXIT` sequence** rather than hand-rolling — it is the one
+  existing path that already destroys a page and builds a fresh one.
+- **Raw F5 scancode, not a new `KeyCode_E`** — needs no `controls.conf` entry on the cabinet
+  and leaves no shipped config surface to unpick when the spike is reverted.
+- **Captured collection name / playlist / scroll index by value, not pointer** — verified:
+  `Page::deInitialize()` **deletes the `CollectionInfo` objects the page owns**
+  (`Page.cpp:116`), so a captured pointer would dangle. Rebuild calls `getCollection(name)`
+  fresh, same as `SPLASH_EXIT`.
+- **Every teardown step logs** (`"SPIKE reload: ..."`) so a crash names the step.
+- Scroll index is clamped to `info->items.size()-1` rather than allowed to fail.
+
+Teardown chain confirmed to exist in source (not assumed):
+`~VideoComponent` → `freeGraphicsMemory()` → `delete videoInst_` → `~VLCVideo` →
+`libvlc_media_player_stop` / `_release`. The spike tests whether it survives **mid-decode**.
+
+**Deployed non-destructively** to `M:\CORE - TYPE R\core\retrofe_spike.exe`.
+The live `retrofe.exe` was **not** touched (still Jul 22 18:28). This works because
+`Configuration::initialize()` on Windows takes the exe directory and goes **up one level**
+(`Configuration.cpp:73`), so `core\` → `M:\CORE - TYPE R\` resolves CORE's real collections,
+layouts and `settings.conf` with zero config changes.
+
+**Cleanup when done:** delete `retrofe_spike.exe`; `git revert ad7d78e` to drop the spike code.
+
 ### Next single action
 
-**Run the teardown spike.** Add a temporary hotkey that forces a page rebuild
-(`RetroFE::loadPage()` → swap `currentPage_`) and confirm teardown is clean **with a video
-playing**. Nothing else. This is step 1 of §2.5 in the blueprint.
+**Run it and report.** Requires a human at the cabinet — it is a fullscreen frontend and the
+entire question is what happens when F5 fires *while a video is decoding*. Steps and success
+criteria are in §9.
 
-Why this and not the watcher: `buildPage()` allocates SDL textures, font-cache entries and
-libVLC handles, and destroying a live `Page` mid-decode is something the engine has never had
-to do — pages are currently only torn down at state transitions the state machine controls.
-If teardown isn't clean the whole slice changes shape, so this is the cheapest way to find out.
-
-Blueprint is written and awaiting an explicit go; the user had not yet said go at handoff.
+Still open, needs the spike result before it can be answered: **is `Page` teardown safe
+mid-decode?** If yes, build the watcher (poll mtime+size @250 ms, debounce across 2 polls,
+build-then-swap, `layoutHotReload` settings gate). If no, the slice changes shape — likely
+stop/drain video before teardown, or defer the swap to a safe point in the state machine.
 
 ---
 
-## 2. Open items to deal with early
+## 2. Open items — ALL CLOSED 2026-07-23 (`bd45a7c`)
+
+Kept only as a record of what was decided and why. Nothing here needs action.
 
 1. ~~**The GitHub repo was renamed and `origin` is stale.**~~ **Done 2026-07-23.** `origin`
    re-pointed to `RetroFE-CORE`, and `upstream` added. See §7 for the full remote topology
@@ -73,16 +110,25 @@ Blueprint is written and awaiting an explicit go; the user had not yet said go a
    `docs/RetroFE/Layout-Hot-Reload-Blueprint.md` is committed while the rest of `docs/`
    is not. `docs/` is therefore **partially tracked** — deliberate, not an oversight.
 
-   Still untracked, still undecided: the remaining **`docs/`** (1.7 MB, incl. two PDFs, a
-   226 KB HTML and a 72 KB PNG), **`.mcp.json`**, **`Scripts/mcp-servers/`** (45 KB).
-   `.gitignore` already excludes `.claude/` and `CLAUDE.md`, so convention says agent tooling
-   stays out. Given the repo is already ~1.2 GB from committed binaries (§7), **do not
-   `git add -A` here** — it sweeps all of it in. Stage selectively.
+   **Fully resolved 2026-07-23 (`bd45a7c`).** The shape is now written into `.gitignore`
+   itself, with a comment block naming which files sit on which side of the line, so it
+   stops being re-litigated every session:
+   - **Tracked:** `docs/RetroFE/Layout-Hot-Reload-Blueprint.md` and
+     `docs/RetroFE/RetroFE Modernization and Performance.md` (engine design docs).
+   - **Ignored:** upstream manuals, `docs/RetroFE_Wiki/`, PDFs, `docs/*.md` (AI workflow
+     guides), `.mcp.json`, `Scripts/mcp-servers/` — reference material and agent tooling.
 
-3. **`CLAUDE.md` is stale on video backend.** It lists "Replace VLC with **libmpv**" under
-   the modernization mission, but GStreamer → **libVLC** already shipped and is what CORE
-   runs today. `CHANGELOG_MODERNIZATION.md` correctly files libmpv as Phase 4 (future).
-   Reword the mission bullet so it stops reading as pending work.
+   Working tree is now **clean**. `docs/` remains deliberately partially tracked.
+   **Still do not `git add -A`** — the ignore rules now cover the known traps, but the repo
+   is ~1.2 GB from committed binaries (§7) and `RustCore/target/` reaches 2.2 GB.
+
+3. ~~**`CLAUDE.md` is stale on video backend.**~~ **Done 2026-07-23.** The mission bullet now
+   reads as ✅ shipped (GStreamer → libVLC) with libmpv explicitly filed as *Phase 4, future*.
+   **Current State** also now notes that `RustCore/` is a scaffold **not wired into CMake**,
+   which was the other thing that read as further along than it is.
+   (`CLAUDE.md` is gitignored, so that edit is local-only by design.)
+
+4. ~~**LM Studio delegation.**~~ **Replaced with Ollama 2026-07-23.** See §6.
 
 ---
 
@@ -259,13 +305,40 @@ and can't be tested against the real CORE build.
 
 ## 6. Working agreement reminders
 
-- `CLAUDE.md` here mandates delegating bulk file reading to the LM Studio local LLM. Follow
-  it; if LM Studio isn't running, say so plainly rather than silently burning API tokens.
-  **Note (2026-07-23):** the `mcp__lm-studio-worker` tools were **not** loaded this session.
-  Ollama is installed and has 5 models (Qwen3.6-35B-A3B ×2, Ornith-1.0-35B, gemma-4-31B,
-  oba-roblox). `J:\Documents\Models\Qwen3.6-40B-Deck-Opus-NEO-CODE-*.gguf` (24 GB) is the
-  code-tuned one and is **not** imported into Ollama yet — it fits the 32 GB RTX 5090 with
-  headroom; worth importing for C++ generation.
+- **Delegation now runs on Ollama, not LM Studio (changed 2026-07-23).** `CLAUDE.md` mandates
+  delegating bulk file reading to the local LLM. Follow it; if Ollama isn't running
+  (`ollama serve`), say so plainly rather than silently burning API tokens.
+
+  **Root cause of why delegation never once worked:** both `.mcp.json` and the duplicate
+  `.claude/mcp.json` pointed at `P:/Documents/github/RetroFE/...` — **a drive that does not
+  exist here** (repo is on `J:`). The server could never start, so the tools never appeared.
+  Fixed. The duplicate `.claude/mcp.json` was deleted; `.mcp.json` at the repo root is the
+  single live config.
+
+  What changed, concretely:
+  | | |
+  |---|---|
+  | Server | `Scripts/mcp-servers/ollama-worker.py` (renamed from `lm-studio-worker.py`) |
+  | Registered as | `ollama-worker` in `.mcp.json` — tools are `mcp__ollama-worker__*` |
+  | Endpoint | `http://localhost:11434/v1/chat/completions` |
+  | Model | `Qwen3.6-35B-A3B-uncensored-heretic-Q5_K_M.gguf:latest` |
+
+  Ollama serves the **same OpenAI-compatible API** as LM Studio, so only the endpoint and
+  model tag changed — the client code is otherwise untouched. Knobs are in one block at the
+  top of the script, each with an env override (`OLLAMA_ENDPOINT`, `OLLAMA_MODEL`).
+
+  **Verified live, not assumed:** a real `curl` against that endpoint+model returned `PONG`.
+
+  Model choice: the Qwen3.6-35B-A3B is MoE — 35B total, ~3B active per token, so it is fast
+  on the 32 GB RTX 5090 and carries a **262k context window**, which is what makes whole-file
+  analysis practical. Other tags available: `Ornith-1.0-35B`, `gemma-4-31B`, `oba-roblox-q4`
+  (2.8 GB, for cheap/simple calls). `J:\Documents\Models\Qwen3.6-40B-Deck-Opus-NEO-CODE-*.gguf`
+  (24 GB) is code-tuned and still **not** imported into Ollama — worth doing for C++ generation.
+
+  Also updated: `.claude/commands/research.md`, `.claude/settings.local.json` permissions, and
+  `Scripts/mcp-servers/README.md`. Stale and superseded:
+  `docs/Claude Code Operational Blueprint - LM Studio Delegation.md` — left on disk
+  (untracked, gitignored) rather than deleted, since it was not mine to throw away.
 - **Delegation judgement call, applied this session:** the layout survey was done with a
   deterministic Python script, not an LLM. Extracting which elements/attributes themes use is
   parsing, not reasoning — a script gives an exact, checkable answer where a model could
@@ -418,3 +491,72 @@ permanently, on top of the 279 binaries `d11032c` already added (§7). Now ignor
 `.gitignore` also now carries `=*`, which catches files created by unquoted shell redirects —
 the origin of `=2.31.0` (it held captured `pip install requests>=2.31.0` output, from a
 `c:\users\b3nj1\` Python install, not this repo).
+
+---
+
+## 9. Teardown spike — how to run it
+
+Built and deployed 2026-07-23, **not yet run**. Needs a human at the cabinet: RetroFE is a
+fullscreen frontend and the entire question is what happens when the page is destroyed
+*while a video is decoding*. An agent shell cannot press F5 or watch the screen.
+
+### Steps
+
+1. Open **File Explorer** and go to `M:\CORE - TYPE R\core\`.
+2. Double-click **`retrofe_spike.exe`**. (**Not** `retrofe.exe` — that is the untouched live
+   build. The spike is the one dated Jul 23.)
+3. Let it boot to the main menu, then navigate to **a game that plays a video snippet**.
+4. **Wait for the video to actually start playing.** This matters — the spike is testing
+   teardown *mid-decode*. Tearing down a still frame proves nothing.
+5. With the video visibly playing, press **F5**.
+6. Watch what happens, then press F5 **again 3-4 more times** in a row, each time while a
+   video is playing. Repeats are where handle and texture leaks surface.
+7. Quit RetroFE and open `M:\CORE - TYPE R\log.txt`.
+
+### What success looks like
+
+The screen rebuilds the layout and lands you back on the **same collection, same playlist,
+roughly the same spot in the list**, with video playing again. No crash, no hang, no black
+screen, no audio still running from the destroyed page.
+
+`log.txt` should show this full sequence for **each** F5 press:
+
+```
+SPIKE reload: tearing down page (collection=..., playlist=...)
+SPIKE reload: deInitialize returned
+SPIKE reload: page deleted
+SPIKE reload: page rebuilt
+SPIKE reload: restored OK, resuming
+```
+
+### What failure looks like, and what each means
+
+| Symptom | Reading |
+|---|---|
+| Log stops after `tearing down page` | Deadlock or crash **inside** `deInitialize()` — most likely libVLC blocking while a decode thread is still live. This is the outcome the spike exists to catch. |
+| Log stops after `deInitialize returned` | Crash in the `Page` destructor / component cleanup. |
+| Log stops after `page deleted` | `buildPage()` cannot re-allocate — font cache or SDL texture state left dirty by teardown. |
+| Full sequence logs but screen is black / frozen | Rebuild succeeded but render state was not restored. |
+| Works once, degrades or crashes after 3-4 presses | **A leak, not a teardown bug** — handles or textures not released. Different fix, and the reason step 6 exists. |
+| Audio keeps playing from the old page | Video instance outlived its component. |
+
+### Report back
+
+Say which of the above happened, and paste the `SPIKE reload:` lines from `log.txt`.
+That determines the shape of the real slice:
+
+- **Clean** → build the watcher: poll mtime+size @250 ms, debounce across 2 polls,
+  build-then-swap-on-success, gate on `layoutHotReload` (default false).
+- **Not clean** → the slice changes shape: stop/drain video before teardown, or defer the
+  swap to a point in the state machine where nothing is decoding.
+
+### Cleanup
+
+```powershell
+Remove-Item "M:\CORE - TYPE R\core\retrofe_spike.exe"
+```
+Then `git revert ad7d78e` to drop the spike code. Nothing else needs undoing — the live
+`retrofe.exe` was never touched and no config was changed.
+
+**Note:** the spike writes to the shared `M:\CORE - TYPE R\log.txt`, same file the live build
+uses. Copy anything you want to keep before running the live build again.
