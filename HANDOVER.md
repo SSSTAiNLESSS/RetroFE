@@ -13,7 +13,26 @@ Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`
 > ⚡ **Resuming? The one thing waiting on a human is in §9: run `retrofe_spike.exe` at the
 > cabinet and report the `SPIKE reload:` lines. Everything else is committed and clean.**
 
-### This session (2026-07-23, second half) — open items closed, spike built
+### This session (2026-07-23, third block) — git strategy audited, no engine work
+
+No engine code touched. The spike in §9 is **still parked and still the next action.**
+
+Audited the repo against the "one fork, one branch per mod, one integrated build" model.
+**Verdict: that is already how this repo operates**, with the two gaps §7 records — `master`
+isn't a clean upstream mirror, and no integration branch exists. Nothing needed restructuring.
+
+Then attempted to purge the committed junk binaries via `git filter-repo`. **It was reverted
+from a bundle; the repo is byte-identical to where it started and nothing was pushed.** The
+attempt is written up in §7 as a settled finding — short version: the saving is 7.6%, not the
+60% an uncompressed-size estimate suggested, and filter-repo severs `upstream/master`
+ancestry. §7 had *already* said not to do this; what was missing was the evidence, now added.
+
+Also corrected: the "~1.2 GB repo" figure in §2 and §7 was wrong — measured **~360 MiB**.
+`CLAUDE.md`'s stale "Multi-Branch Development" section was rewritten to match §7, but note
+**`CLAUDE.md` is gitignored (`.gitignore:27`)** — it is local to this machine and carries no
+commit, so §7 here is the only durable record.
+
+### Earlier this session (2026-07-23, second half) — open items closed, spike built
 
 Three commits on `feature/layout-hot-reload`, working tree clean:
 
@@ -27,7 +46,7 @@ Also done, all in gitignored files so they carry no commit: **LM Studio delegati
 with Ollama**, and the root cause found for why delegation had never worked in any session —
 both MCP configs pointed at a `P:` drive that does not exist on this machine (§6).
 
-### Earlier this session — blueprint
+### Earlier still (2026-07-23, first half) — blueprint
 
 Cut **`feature/layout-hot-reload`** off `feature/data-modernization` (`ecea8ab`) and
 produced the blueprint for slice 1.
@@ -148,7 +167,7 @@ Kept only as a record of what was decided and why. Nothing here needs action.
 
    Working tree is now **clean**. `docs/` remains deliberately partially tracked.
    **Still do not `git add -A`** — the ignore rules now cover the known traps, but the repo
-   is ~1.2 GB from committed binaries (§7) and `RustCore/target/` reaches 2.2 GB.
+   carries ~360 MiB of committed binaries (§7) and `RustCore/target/` reaches 2.2 GB.
 
 3. ~~**`CLAUDE.md` is stale on video backend.**~~ **Done 2026-07-23.** The mission bullet now
    reads as ✅ shipped (GStreamer → libVLC) with libmpv explicitly filed as *Phase 4, future*.
@@ -423,7 +442,28 @@ Verified by `git merge-base --is-ancestor` against all four small branches. A PR
 any of them today would show its own 2–3 commits *plus 279 committed binaries*. That alone
 would get a PR closed on sight.
 
-Repo is currently **~1.2 GB** of git objects on disk, largely from this.
+Repo git objects measure **~360 MiB** (`size-pack`, verified 2026-07-23). An earlier
+"~1.2 GB" figure in this document was wrong and has been corrected.
+
+### ⛔ Do not try to purge the binaries by rewriting history — tried and reverted
+
+Attempted 2026-07-23 with `git filter-repo --path "Package/Environment/Windows/core 1.4/"
+--invert-paths`. **Reverted from a bundle.** Two findings, both measured:
+
+1. **The saving is trivial.** The junk DLLs are ~231 MiB *uncompressed*, but git already
+   delta-compresses them to **~29 MiB in the pack — 7.6% of the repo**. Counting unique blob
+   SHAs (274 of 278 unique) does *not* predict pack cost; delta compression is not SHA dedup.
+   The bulk of the repo is upstream's own `Package/Environment/Windows/core/` GStreamer DLLs
+   (`avcodec-59.dll` alone is 76 MiB), which cannot go without diverging from upstream.
+2. **It severs upstream ancestry.** filter-repo rewrote 4 `upstream/master` commits that
+   contain no `core 1.4` files (two are merge commits, which it restructures by default).
+   Afterwards `git merge-base --is-ancestor upstream/master master` failed — every branch's
+   PR would show its full history as new commits. Exactly what §7's whole strategy prevents.
+
+The junk is already absent from every working tree; it is history-only weight. **Leave it.**
+Use the cherry-pick recipe below when a PR is actually wanted.
+
+A plain `git gc --prune=now --aggressive` is safe and reclaimed ~17 MiB with no downside.
 
 ### The fix, when PRs are actually wanted
 
