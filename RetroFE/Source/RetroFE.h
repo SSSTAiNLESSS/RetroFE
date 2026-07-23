@@ -62,6 +62,9 @@ private:
         RETROFE_LOAD_ART,
         RETROFE_ENTER,
         RETROFE_SPLASH_EXIT,
+        // SPIKE (temporary, layout hot-reload slice 1): forced page rebuild,
+        // triggered by the raw F5 scancode. Remove with the rest of the spike.
+        RETROFE_RELOAD_LAYOUT_REQUEST,
         RETROFE_PLAYLIST_REQUEST,
         RETROFE_PLAYLIST_EXIT,
         RETROFE_PLAYLIST_LOAD_ART,

@@ -516,6 +516,74 @@ bool RetroFE::run( )
             }
             break;
 
+        // SPIKE (temporary, layout hot-reload slice 1): force a full page
+        // teardown and rebuild, to find out whether tearing down a live Page is
+        // safe -- especially with a video mid-decode. The engine has never had
+        // to do this: pages are otherwise only destroyed at state transitions
+        // the state machine itself controls.
+        //
+        // The sequence deliberately mirrors RETROFE_SPLASH_EXIT above, which is
+        // the one existing path that already destroys a page and builds a fresh
+        // one. Each step is logged so that if this crashes, the log names the
+        // exact step rather than leaving us to guess.
+        case RETROFE_RELOAD_LAYOUT_REQUEST:
+            {
+                // Capture by VALUE, not pointer: Page::deInitialize() deletes the
+                // CollectionInfo objects the page owns (Page.cpp:116), so any
+                // pointer captured here would dangle the moment we tear down.
+                std::string  collectionName = currentPage_->getCollectionName( );
+                std::string  playlistName   = currentPage_->getPlaylistName( );
+                unsigned int scrollIndex    = currentPage_->getScrollOffsetIndex( );
+
+                Logger::write( Logger::ZONE_INFO, "RetroFE",
+                    "SPIKE reload: tearing down page (collection=" + collectionName +
+                    ", playlist=" + playlistName + ")" );
+
+                currentPage_->deInitialize( );
+                Logger::write( Logger::ZONE_INFO, "RetroFE", "SPIKE reload: deInitialize returned" );
+
+                delete currentPage_;
+                currentPage_ = NULL;
+                Logger::write( Logger::ZONE_INFO, "RetroFE", "SPIKE reload: page deleted" );
+
+                currentPage_ = loadPage( );
+                Logger::write( Logger::ZONE_INFO, "RetroFE", "SPIKE reload: page rebuilt" );
+
+                if ( currentPage_ )
+                {
+                    config_.setProperty( "currentCollection", collectionName );
+                    CollectionInfo *info = getCollection( collectionName );
+                    currentPage_->pushCollection( info );
+
+                    currentPage_->selectPlaylist( playlistName );
+                    if ( currentPage_->getPlaylistName( ) != playlistName )
+                        currentPage_->selectPlaylist( "all" );
+
+                    // Clamp rather than fail: a rebuilt layout may present fewer
+                    // items than the index we captured.
+                    if ( info && info->items.size( ) > 0 &&
+                         scrollIndex >= info->items.size( ) )
+                    {
+                        scrollIndex = static_cast<unsigned int>( info->items.size( ) - 1 );
+                    }
+                    currentPage_->setScrollOffsetIndex( scrollIndex );
+
+                    currentPage_->onNewItemSelected( );
+                    currentPage_->reallocateMenuSpritePoints( );
+
+                    Logger::write( Logger::ZONE_INFO, "RetroFE",
+                        "SPIKE reload: restored OK, resuming" );
+                    state = RETROFE_LOAD_ART;
+                }
+                else
+                {
+                    Logger::write( Logger::ZONE_ERROR, "RetroFE",
+                        "SPIKE reload: rebuild returned no page, quitting" );
+                    state = RETROFE_QUIT_REQUEST;
+                }
+            }
+            break;
+
         // Switch playlist; start onHighlightExit animation
         case RETROFE_PLAYLIST_REQUEST:
             inputClear = false;
@@ -1442,13 +1510,30 @@ RetroFE::RETROFE_STATE RetroFE::processUserInput( Page *page )
 
     // Poll all events until we find an active one
     SDL_Event e;
+    bool reloadLayoutRequest = false;
     while ( SDL_PollEvent( &e ) )
     {
         input_.update(e);
+
+        // SPIKE (temporary, layout hot-reload slice 1): raw F5 forces a full
+        // page teardown + rebuild. Deliberately a raw scancode rather than a
+        // new KeyCode_E, so the spike needs no controls.conf entry on the test
+        // machine and leaves no shipped config surface behind when removed.
+        // e.key.repeat guards against a held key firing a rebuild every frame.
+        if ( e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F5 && e.key.repeat == 0 )
+        {
+            reloadLayoutRequest = true;
+        }
+
         if ( e.type == SDL_KEYDOWN && !SDL_KEYUP )
         {
             break;
         }
+    }
+
+    if ( reloadLayoutRequest )
+    {
+        return RETROFE_RELOAD_LAYOUT_REQUEST;
     }
 
     // Handle next/previous game inputs
