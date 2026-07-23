@@ -10,10 +10,27 @@ Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`
 
 ## 1. Where things stand
 
-### Just completed this session
+> ⚡ **Resuming? The one thing waiting on a human is in §9: run `retrofe_spike.exe` at the
+> cabinet and report the `SPIKE reload:` lines. Everything else is committed and clean.**
+
+### This session (2026-07-23, second half) — open items closed, spike built
+
+Three commits on `feature/layout-hot-reload`, working tree clean:
+
+| Commit | What |
+|---|---|
+| `bd45a7c` | Settled the untracked-file shape (§2); refreshed stale `CLAUDE.md` claims |
+| `ad7d78e` | **SPIKE** — F5 forces a page teardown + rebuild (details below, revert when done) |
+| `4ed81da` | Handover refresh |
+
+Also done, all in gitignored files so they carry no commit: **LM Studio delegation replaced
+with Ollama**, and the root cause found for why delegation had never worked in any session —
+both MCP configs pointed at a `P:` drive that does not exist on this machine (§6).
+
+### Earlier this session — blueprint
 
 Cut **`feature/layout-hot-reload`** off `feature/data-modernization` (`ecea8ab`) and
-produced the blueprint for slice 1. **No engine code written yet** — by design.
+produced the blueprint for slice 1.
 
 Surveyed all **228 `layout.xml` files** across the ten reference themes (Theta, Refried,
 ReCORE, Ergo Proxy, 1MiLLiON, Banner, Back2Basics, Theme_Pack ×7, Aeon Nox). Findings are
@@ -81,14 +98,25 @@ layouts and `settings.conf` with zero config changes.
 
 ### Next single action
 
-**Run it and report.** Requires a human at the cabinet — it is a fullscreen frontend and the
-entire question is what happens when F5 fires *while a video is decoding*. Steps and success
-criteria are in §9.
+**Run the spike at the cabinet and report the log lines.** Deferred at handoff 2026-07-23 —
+STAiNLESS was away from the machine. Nothing else is queued behind it that can be done first;
+this is a genuine hard block, not a preference.
 
-Still open, needs the spike result before it can be answered: **is `Page` teardown safe
-mid-decode?** If yes, build the watcher (poll mtime+size @250 ms, debounce across 2 polls,
-build-then-swap, `layoutHotReload` settings gate). If no, the slice changes shape — likely
-stop/drain video before teardown, or defer the swap to a safe point in the state machine.
+Requires a human: RetroFE is a fullscreen frontend and the entire question is what happens
+when F5 fires *while a video is decoding*. An agent shell cannot press F5 or watch the screen.
+**Numbered steps, success criteria and the failure-mode table are in §9.**
+
+The question it answers: **is `Page` teardown safe mid-decode?**
+- **Clean** → build the watcher: poll mtime+size @250 ms, debounce across 2 polls,
+  build-then-swap-on-success, gate on `layoutHotReload` (default false). All of those were
+  already decided in the blueprint §2.2 — no re-deriving needed.
+- **Not clean** → the slice changes shape: stop/drain video before teardown, or defer the
+  swap to a point in the state machine where nothing is decoding.
+
+**If the next session opens and the spike still hasn't been run:** don't start the watcher on
+a guess, and don't re-survey the themes — that work is done and written up. Either prompt for
+the test, or pick up something genuinely independent, e.g. the integration branch gap (§7,
+"Still missing"), or importing the code-tuned Qwen GGUF into Ollama (§6).
 
 ---
 
