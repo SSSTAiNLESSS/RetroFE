@@ -30,3 +30,9 @@ reflections.json
 build.log
 nul
 
+# Rust build artifacts (RustCore/target reaches 2+ GB with bundled DuckDB)
+RetroFE/Source/RustCore/target/
+
+# Shell-redirect debris, e.g. unquoted `pip install requests>=2.31.0`
+=*
+
