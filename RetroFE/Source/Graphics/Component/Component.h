@@ -65,6 +65,10 @@ public:
     virtual void setText(std::string text, int id = -1) {};
     virtual void setImage(std::string filePath, int id = -1) {};
     int getId( );
+    // Layout hot-reload: the counterpart to setTweens(), so a freshly parsed
+    // layout's animation set can be moved onto an already-live component
+    // without rebuilding the page around it.
+    AnimationEvents *getTweens( ) const { return tweens_; }
 
 protected:
     Page &page;

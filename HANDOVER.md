@@ -2,20 +2,81 @@
 
 Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`.
 
-**Last updated:** 2026-07-23
-**Branch at handover:** `feature/layout-hot-reload` (cut this session from
+**Last updated:** 2026-07-24
+**Branch at handover:** `feature/layout-hot-reload` (cut from
 `feature/data-modernization` @ `ecea8ab`)
 
 ---
 
 ## 1. Where things stand
 
-> ⚡ **Resuming? The one thing waiting on a human is in §9: run `retrofe_spike.exe` at the
-> cabinet and report the `SPIKE reload:` lines. Everything else is committed and clean.**
+> ⚡ **Resuming? Slice 1 (layout hot-reload) is BUILT and deployed to the test rig at
+> `K:\RetroFE-Testies`. The one thing waiting on a human is in §9: run it, press F5, and
+> report whether the tween edit took at 2–3 tiers deep. Everything else is committed and clean.**
 
-### This session (2026-07-23, third block) — git strategy audited, no engine work
+### This session (2026-07-24) — spike answered, then PIVOTED the whole approach
 
-No engine code touched. The spike in §9 is **still parked and still the next action.**
+Two big results this session.
+
+**1. The teardown spike ran (finally) and passed.** Full `SPIKE reload:` sequence logged on all
+7 F5 presses, no crash / hang / deadlock. **`Page` teardown IS safe mid-decode** — libVLC handles
+torn down mid-decode 7× without complaint. That question is now closed. But the screen went black,
+and the diagnosis changed the whole design (below).
+
+**2. Abandoned page-rebuild, pivoted to tween-reapply.** The black screen was NOT a teardown bug.
+Root cause, verified in `Component::update()` (Component.cpp:155-186): **a component only changes
+state when an event fires AND it has a matching animation block at its current `menuIndex`;
+otherwise the request is silently dropped and the component keeps its existing state.** So a live
+page's appearance is the *accumulated* result of the whole navigation history, not a function of
+its final depth. A rebuilt page has none of that history, so everything made visible at a shallower
+tier stays at its authored alpha (0 for most themes = black). This gets **worse the deeper you go**,
+which is fatal to the requirement "must work no matter how many tiers deep."
+
+**The fix: stop tearing the page down.** Re-parse `layout.xml` into a throwaway page, transplant its
+`AnimationEvents` onto the live components via the existing `setTweens()`, destroy the throwaway.
+Nothing is destroyed on the live page, so depth / collections / scroll / visibility all survive
+untouched, at any tier. Covers animation edits (43,891 `animate` nodes vs 2,133 `image` in the
+survey — animation is the case that matters); adding/removing a component still needs a restart and
+is refused with a logged reason rather than scrambling the theme.
+
+### Slice 1 — BUILT this session, awaiting on-rig confirmation
+
+| File | Change |
+|---|---|
+| `Component.h` | `getTweens()` accessor (counterpart to existing `setTweens()`) |
+| `Page.cpp` / `Page.h` | `reapplyTweensFrom(Page *fresh, string &reason)` — structure-guarded tween swap |
+| `RetroFE.cpp` | `RETROFE_RELOAD_LAYOUT_REQUEST` rewritten: build throwaway → reapply → destroy → re-fire entry event for current tier; on failure log + stay on current layout |
+
+Three ownership hazards checked in source, not assumed:
+- `~Component` never frees `AnimationEvents` → transplant can't double-free.
+- `Page::deInitialize()` doesn't touch the shared font cache → destroying throwaway won't break live text.
+- `createVideo` is only reached via `allocateGraphicsMemory`, which the throwaway never gets → live video undisturbed.
+
+**Deliberate limit:** menu *per-item* scroll-point animations are NOT transplanted. `~ScrollingList`
+deletes the `ViewInfo`s in `scrollPoints_` and clones share that vector, so moving them would dangle.
+Everything else (all `<onMenuEnter>`/`<onIdle>`/`<onHighlightEnter>` on images, videos, text, menu
+containers) reloads.
+
+Clean Release build (Win32, no warnings). **Not committed by the /handoff — see §10 for the
+git-history note on the old spike commit `ad7d78e`.** Working tree carries the 4 edited source
+files + `Scripts/test_fixture.ps1`.
+
+### Test rig built this session — `K:\RetroFE-Testies`
+
+Aeon Nox theme (1121 lines, ~55 components, 648 `animate` nodes) — far saner than TITAN's 9812.
+Fixture's `core\` originally held the 2022 GStreamer-era exe + 278 DLLs; replaced the runtime with
+the 12-DLL libVLC set from `M:\CORE - TYPE R\core\` (+ 734 plugin files) and deployed our build.
+`fullscreen = no`, so it runs windowed beside an editor.
+
+**Snapshot/restore tooling:** `Scripts/test_fixture.ps1` (-Action Snapshot|Status|Restore -Force).
+Baseline at `K:\RetroFE-Testies.baseline` (1718 files, 693 MiB) is the *working rig*. Excludes and
+protects `emulators\` (1.9 GB), `core 1.4\`, `RetroFE\`. **Caught+fixed a real bug during build:**
+source-only `/XD` paths meant a Restore would have purged 1.9 GB of emulators — now excluded on both
+sides and proven on a throwaway tree before ever pointing at the real fixture.
+
+### Previously (2026-07-23, third block) — git strategy audited, no engine work
+
+No engine code touched.
 
 Audited the repo against the "one fork, one branch per mod, one integrated build" model.
 **Verdict: that is already how this repo operates**, with the two gaps §7 records — `master`
@@ -78,64 +139,34 @@ Deliberately **not** carried across: the unrelated mixed-collections work sittin
 those commits on `data-modernization` (`1d4dc9f`, `7866e0e`, `4279a70`, `a81beb4`, `d6d7bdd`,
 merge `c4cf1b2`) and the roadmap/gitignore commits (`92baa40`, `2a90884`).
 
-### Teardown spike — BUILT, deployed, **not yet run** (2026-07-23)
+### Teardown spike — RAN 2026-07-24, PASSED, then superseded
 
-Commit `ad7d78e` — a deliberately revertable **SPIKE** commit. Open items 1–3 below were
-also closed in `bd45a7c`. Build is clean (Release, Win32, no warnings on `RetroFE.cpp`).
+Commit `ad7d78e` built an F5-forces-page-rebuild spike (the `RETROFE_RELOAD_LAYOUT_REQUEST`
+enum + `SDLK_F5` handler it added are now **reused** by slice 1). It ran at the cabinet 2026-07-24:
+teardown was clean 7/7, **`Page` teardown is safe mid-decode — that question is closed.** But the
+diagnosis of the black screen it produced killed the rebuild approach and drove the pivot (§1).
+The spike's rebuild *body* has been fully replaced in the working tree; the enum + F5 trigger
+survive as the hot-reload plumbing.
 
-What it does: **F5 forces a full page teardown + rebuild.**
-
-| Piece | Where | Note |
-|---|---|---|
-| `RETROFE_RELOAD_LAYOUT_REQUEST` enum | `RetroFE.h:64` | after `RETROFE_SPLASH_EXIT` |
-| F5 detection | `RetroFE.cpp` `processUserInput()` | raw `SDLK_F5`, `e.key.repeat == 0` |
-| Teardown/rebuild case | `RetroFE.cpp`, before `RETROFE_PLAYLIST_REQUEST` | mirrors `RETROFE_SPLASH_EXIT` |
-
-Design calls made, with reasons:
-- **Reused the `RETROFE_SPLASH_EXIT` sequence** rather than hand-rolling — it is the one
-  existing path that already destroys a page and builds a fresh one.
-- **Raw F5 scancode, not a new `KeyCode_E`** — needs no `controls.conf` entry on the cabinet
-  and leaves no shipped config surface to unpick when the spike is reverted.
-- **Captured collection name / playlist / scroll index by value, not pointer** — verified:
-  `Page::deInitialize()` **deletes the `CollectionInfo` objects the page owns**
-  (`Page.cpp:116`), so a captured pointer would dangle. Rebuild calls `getCollection(name)`
-  fresh, same as `SPLASH_EXIT`.
-- **Every teardown step logs** (`"SPIKE reload: ..."`) so a crash names the step.
-- Scroll index is clamped to `info->items.size()-1` rather than allowed to fail.
-
-Teardown chain confirmed to exist in source (not assumed):
-`~VideoComponent` → `freeGraphicsMemory()` → `delete videoInst_` → `~VLCVideo` →
-`libvlc_media_player_stop` / `_release`. The spike tests whether it survives **mid-decode**.
-
-**Deployed non-destructively** to `M:\CORE - TYPE R\core\retrofe_spike.exe`.
-The live `retrofe.exe` was **not** touched (still Jul 22 18:28). This works because
-`Configuration::initialize()` on Windows takes the exe directory and goes **up one level**
-(`Configuration.cpp:73`), so `core\` → `M:\CORE - TYPE R\` resolves CORE's real collections,
-layouts and `settings.conf` with zero config changes.
-
-**Cleanup when done:** delete `retrofe_spike.exe`; `git revert ad7d78e` to drop the spike code.
+`retrofe_spike.exe` on `M:\CORE - TYPE R\core\` from that run can be deleted (live `retrofe.exe`
+was never touched). Testing has moved to the isolated `K:\RetroFE-Testies` rig — CORE is no longer
+the test target.
 
 ### Next single action
 
-**Run the spike at the cabinet and report the log lines.** Deferred at handoff 2026-07-23 —
-STAiNLESS was away from the machine. Nothing else is queued behind it that can be done first;
-this is a genuine hard block, not a preference.
+**Run `K:\RetroFE-Testies\core\retrofe.exe`, press F5 after editing a tween, confirm it takes at
+2–3 tiers deep.** Full numbered test plan (3 tests) in §9. Requires a human: it's a running
+frontend, an agent shell can't press F5 or watch the window.
 
-Requires a human: RetroFE is a fullscreen frontend and the entire question is what happens
-when F5 fires *while a video is decoding*. An agent shell cannot press F5 or watch the screen.
-**Numbered steps, success criteria and the failure-mode table are in §9.**
+The question it answers: **does tween-reapply work, and does it hold up at arbitrary tier depth?**
+- **Works at depth** → build the file watcher: poll mtime+size @250 ms, debounce across 2 polls,
+  gate on `layoutHotReload` (default false, read via `config_.getProperty(key, bool&)`). F5 stays
+  as the manual override. Blueprint §2.2 already decided all of it.
+- **Broken** → paste the `Layout reload:` log line + what you saw; the reason string names why.
 
-The question it answers: **is `Page` teardown safe mid-decode?**
-- **Clean** → build the watcher: poll mtime+size @250 ms, debounce across 2 polls,
-  build-then-swap-on-success, gate on `layoutHotReload` (default false). All of those were
-  already decided in the blueprint §2.2 — no re-deriving needed.
-- **Not clean** → the slice changes shape: stop/drain video before teardown, or defer the
-  swap to a point in the state machine where nothing is decoding.
-
-**If the next session opens and the spike still hasn't been run:** don't start the watcher on
-a guess, and don't re-survey the themes — that work is done and written up. Either prompt for
-the test, or pick up something genuinely independent, e.g. the integration branch gap (§7,
-"Still missing"), or importing the code-tuned Qwen GGUF into Ollama (§6).
+**If the next session opens and it still hasn't been run:** don't build the watcher on a guess.
+Either prompt for the test, or pick up something genuinely independent — the integration branch
+gap (§7, "Still missing") or importing the code-tuned Qwen GGUF into Ollama (§6).
 
 ---
 
@@ -335,7 +366,7 @@ not 563 KB. Mechanics, if ever needed again: `M:\CORE - TYPE R\.claude\KNOWLEDGE
 
 | Branch | Tip | State |
 |---|---|---|
-| `feature/layout-hot-reload` | see §1 | **current branch**; theme-editor work; docs only so far; **not pushed** |
+| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) built, awaiting on-rig test; **not pushed** |
 | `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **not pushed** |
 | `feature/vlc-replacement` | `06de5ed` | in sync with origin ✅ |
 | `feature/mixed-collections` | `2acf7b6` | in sync with origin |
@@ -562,69 +593,69 @@ the origin of `=2.31.0` (it held captured `pip install requests>=2.31.0` output,
 
 ---
 
-## 9. Teardown spike — how to run it
+## 9. Layout hot-reload — how to test it
 
-Built and deployed 2026-07-23, **not yet run**. Needs a human at the cabinet: RetroFE is a
-fullscreen frontend and the entire question is what happens when the page is destroyed
-*while a video is decoding*. An agent shell cannot press F5 or watch the screen.
+Built and deployed 2026-07-24 to `K:\RetroFE-Testies`, **not yet run**. Needs a human: it's a
+running frontend, an agent shell can't press F5 or watch the window. Runs windowed
+(`fullscreen = no`) so you can keep an editor beside it.
 
-### Steps
+Reset the rig between runs any time: `.\Scripts\test_fixture.ps1 -Action Restore -Force`
 
-1. Open **File Explorer** and go to `M:\CORE - TYPE R\core\`.
-2. Double-click **`retrofe_spike.exe`**. (**Not** `retrofe.exe` — that is the untouched live
-   build. The spike is the one dated Jul 23.)
-3. Let it boot to the main menu, then navigate to **a game that plays a video snippet**.
-4. **Wait for the video to actually start playing.** This matters — the spike is testing
-   teardown *mid-decode*. Tearing down a still frame proves nothing.
-5. With the video visibly playing, press **F5**.
-6. Watch what happens, then press F5 **again 3-4 more times** in a row, each time while a
-   video is playing. Repeats are where handle and texture leaks surface.
-7. Quit RetroFE and open `M:\CORE - TYPE R\log.txt`.
+### Test 1 — does a tween edit take?
+
+1. Run `K:\RetroFE-Testies\core\retrofe.exe`.
+2. Open `K:\RetroFE-Testies\layouts\Aeon Nox\layout.xml`, **line 30**.
+3. Change `duration=".15"` to `duration="3"`. Save.
+4. Click back on RetroFE, press **F5**.
+5. Scroll the menu — the highlight fade should now be conspicuously slow (3 s).
+
+### Test 2 — tier independence (the whole point)
+
+Navigate 2–3 tiers deep, then press **F5**. You should stay exactly where you are, still visible,
+video still playing. This is the case the old page-rebuild approach failed.
+
+### Test 3 — the safety guard
+
+Add a whole new `<image>` element to the layout, save, F5. It should **refuse**: screen unchanged,
+`log.txt` says `Layout reload skipped, keeping current layout: component count changed (N -> N+1)`.
 
 ### What success looks like
 
-The screen rebuilds the layout and lands you back on the **same collection, same playlist,
-roughly the same spot in the list**, with video playing again. No crash, no hang, no black
-screen, no audio still running from the destroyed page.
-
-`log.txt` should show this full sequence for **each** F5 press:
+`K:\RetroFE-Testies\log.txt` shows, per F5:
 
 ```
-SPIKE reload: tearing down page (collection=..., playlist=...)
-SPIKE reload: deInitialize returned
-SPIKE reload: page deleted
-SPIKE reload: page rebuilt
-SPIKE reload: restored OK, resuming
+Layout reload: 57 components re-tweened at menu depth 3
 ```
+
+Screen updates in place — same collection, same tier, same scroll spot, video still playing.
 
 ### What failure looks like, and what each means
 
 | Symptom | Reading |
 |---|---|
-| Log stops after `tearing down page` | Deadlock or crash **inside** `deInitialize()` — most likely libVLC blocking while a decode thread is still live. This is the outcome the spike exists to catch. |
-| Log stops after `deInitialize returned` | Crash in the `Page` destructor / component cleanup. |
-| Log stops after `page deleted` | `buildPage()` cannot re-allocate — font cache or SDL texture state left dirty by teardown. |
-| Full sequence logs but screen is black / frozen | Rebuild succeeded but render state was not restored. |
-| Works once, degrades or crashes after 3-4 presses | **A leak, not a teardown bug** — handles or textures not released. Different fix, and the reason step 6 exists. |
-| Audio keeps playing from the old page | Video instance outlived its component. |
+| Edit doesn't take, no `Layout reload:` line at all | F5 not reaching the state; check the `SDLK_F5` handler fired |
+| `Layout reload:` logs but screen unchanged | tweens swapped but entry event didn't re-fire — check the `enterMenu()`/`start()` branch |
+| Black screen after F5 | the guard let a structurally-different or malformed layout through; should be impossible — capture the layout diff |
+| Crash on F5 | an ownership assumption in §1 was wrong — capture the last log line |
+| Works at depth 1, breaks deep | tier independence failed — this is the exact thing the pivot was meant to fix |
 
 ### Report back
 
-Say which of the above happened, and paste the `SPIKE reload:` lines from `log.txt`.
-That determines the shape of the real slice:
+Paste the `Layout reload:` line(s) and say what you saw on screen. Then §1 "Next single action"
+decides the shape of the watcher slice.
 
-- **Clean** → build the watcher: poll mtime+size @250 ms, debounce across 2 polls,
-  build-then-swap-on-success, gate on `layoutHotReload` (default false).
-- **Not clean** → the slice changes shape: stop/drain video before teardown, or defer the
-  swap to a point in the state machine where nothing is decoding.
+---
 
-### Cleanup
+## 10. Git history note — the old spike commit `ad7d78e`
 
-```powershell
-Remove-Item "M:\CORE - TYPE R\core\retrofe_spike.exe"
-```
-Then `git revert ad7d78e` to drop the spike code. Nothing else needs undoing — the live
-`retrofe.exe` was never touched and no config was changed.
+`ad7d78e` ("SPIKE: forced page rebuild on F5") is still in this branch's history. Its *approach*
+(rebuild the page) was abandoned this session, but its **scaffolding is reused**: the
+`RETROFE_RELOAD_LAYOUT_REQUEST` enum and the `SDLK_F5` trigger it added are the plumbing slice 1
+sits on. So **do not `git revert ad7d78e`** — that would rip out the enum and F5 handler the current
+code depends on. The rebuild body was replaced by edit, not revert.
 
-**Note:** the spike writes to the shared `M:\CORE - TYPE R\log.txt`, same file the live build
-uses. Copy anything you want to keep before running the live build again.
+The 2026-07-24 checkpoint commit (this handoff) carries the pivot on top: `Component.h`,
+`Page.cpp/.h`, `RetroFE.cpp`, `Scripts/test_fixture.ps1`. When slice 1 is confirmed and the branch
+is eventually cleaned for a PR, squash `ad7d78e` + the pivot commit together so the "rebuild then
+pivot" churn collapses into one coherent "layout hot-reload" change — the cherry-pick-off-upstream
+recipe in §7 handles that naturally.

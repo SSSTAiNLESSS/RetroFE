@@ -1459,6 +1459,99 @@ CollectionInfo *Page::getCollection()
 }
 
 
+// Layout hot-reload: adopt the animation sets from a page built off the current
+// layout.xml, without tearing this page down.
+//
+// Why not just rebuild the page: a component only changes state when an event
+// fires AND it has a matching animation block at its current menuIndex --
+// otherwise Component::update() silently drops the request and the component
+// keeps whatever state it already had. A live page's appearance is therefore the
+// accumulated result of the whole navigation, not a function of its final depth.
+// A rebuilt page has none of that history, so anything made visible at a
+// shallower tier stays at its authored alpha (0, in most themes). Swapping only
+// the animation data sidesteps that entirely, at any tier depth.
+//
+// Ownership: nothing in the engine ever frees an AnimationEvents -- neither
+// ~Component nor Page::deInitialize -- so moving the pointer across is safe and
+// needs no detachment from the source page. The displaced sets are left alone
+// for the same reason; ScrollingList clones share tween pointers (see the copy
+// constructor), so freeing them here would risk a double free for no real gain
+// on a developer-only feature.
+//
+// Deliberately NOT transplanted: ScrollingList scroll points and their per-point
+// tween vectors. ~ScrollingList deletes the ViewInfos in scrollPoints_ and
+// clones share that vector, so moving them would leave dangling pointers when
+// the source page is destroyed. Menu per-item animations therefore still need a
+// restart; everything else reloads.
+bool Page::reapplyTweensFrom( Page *fresh, std::string &reason )
+{
+    if(!fresh)
+    {
+        reason = "no page was built from the layout";
+        return false;
+    }
+
+    // Structure must be identical, or index-based matching would pair up the
+    // wrong components and scramble the theme. Bail without touching anything.
+    if(fresh->LayerComponents.size() != LayerComponents.size())
+    {
+        reason = "component count changed (" + std::to_string(LayerComponents.size()) +
+                 " -> " + std::to_string(fresh->LayerComponents.size()) +
+                 "); adding or removing a component still needs a restart";
+        return false;
+    }
+
+    // The live page can hold MORE menu levels than the layout declares, because
+    // pushCollection() clones a level each time the user goes a tier deeper.
+    // Those clones derive from the deepest authored level, so clamp to it.
+    if(fresh->menus_.size() == 0 && menus_.size() > 0)
+    {
+        reason = "layout declares no menus but the live page has " +
+                 std::to_string(menus_.size());
+        return false;
+    }
+
+    for(unsigned int i = 0; i < menus_.size(); ++i)
+    {
+        unsigned int f = (i < fresh->menus_.size()) ? i : (unsigned int)fresh->menus_.size() - 1;
+        if(menus_[i].size() != fresh->menus_[f].size())
+        {
+            reason = "menu level " + std::to_string(i) + " changed size";
+            return false;
+        }
+    }
+
+    // Past this point nothing can fail, so the swap is all-or-nothing.
+    unsigned int moved = 0;
+
+    for(unsigned int i = 0; i < LayerComponents.size(); ++i)
+    {
+        if(LayerComponents[i] && fresh->LayerComponents[i])
+        {
+            LayerComponents[i]->setTweens(fresh->LayerComponents[i]->getTweens());
+            ++moved;
+        }
+    }
+
+    for(unsigned int i = 0; i < menus_.size(); ++i)
+    {
+        unsigned int f = (i < fresh->menus_.size()) ? i : (unsigned int)fresh->menus_.size() - 1;
+        for(unsigned int j = 0; j < menus_[i].size(); ++j)
+        {
+            if(menus_[i][j] && fresh->menus_[f][j])
+            {
+                menus_[i][j]->setTweens(fresh->menus_[f][j]->getTweens());
+                ++moved;
+            }
+        }
+    }
+
+    reason = std::to_string(moved) + " components re-tweened at menu depth " +
+             std::to_string(menuDepth_);
+    return true;
+}
+
+
 void Page::freeGraphicsMemory()
 {
     for(MenuVector_T::iterator it = menus_.begin(); it != menus_.end(); it++)

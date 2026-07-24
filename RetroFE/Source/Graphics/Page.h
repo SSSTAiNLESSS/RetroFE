@@ -99,6 +99,11 @@ public:
     bool isSelectPlaying();
     std::string getCollectionName();
     CollectionInfo *getCollection();
+    // Layout hot-reload: adopt the animation sets from a page freshly built off
+    // the current layout.xml, leaving this page's structure, collections, menu
+    // depth and per-component animation state untouched. Returns false and
+    // changes nothing if the two pages are not structurally identical.
+    bool reapplyTweensFrom( Page *fresh, std::string &reason );
     void  setMinShowTime(float value);
     float getMinShowTime();
     void  menuScroll();
