@@ -377,7 +377,13 @@ bool RetroFE::run( )
     currentPage_        = loadSplashPage( );
     state               = RETROFE_ENTER;
     bool splashMode     = true;
-    bool exitSplashMode = false;
+
+    // A queued route means the user just picked a setting and is waiting to be
+    // put back where they were, so the intro is pure delay -- start as though
+    // they had already pressed select to dismiss it. This skips the minimum
+    // show time and the wait for the intro video to finish; initialization
+    // itself still has to complete before the splash can go.
+    bool exitSplashMode = hasPendingRestore( );
 
     Launcher l( config_ );
     Menu     m( config_, input_ );
@@ -2197,6 +2203,22 @@ static std::vector<std::string> splitRoute( const std::string &value )
 //
 // The keys are consumed here -- stripped from settings_saved.conf -- so the
 // next ordinary start does not silently teleport back into a settings menu.
+// Is a saved route waiting to be walked? Deliberately does not consume the
+// keys -- loadRestoreState() owns that -- so this stays safe to call before
+// the state machine starts.
+bool RetroFE::hasPendingRestore( )
+{
+    bool restoreStateOnReboot = false;
+    config_.getProperty( "restoreStateOnReboot", restoreStateOnReboot );
+    if ( !restoreStateOnReboot )
+        return false;
+
+    std::string path;
+    config_.getProperty( "restorePath", path );
+    return !path.empty( );
+}
+
+
 void RetroFE::loadRestoreState( )
 {
     pendingRestore_.clear( );

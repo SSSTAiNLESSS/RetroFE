@@ -38,6 +38,7 @@ docs/*.md
 # Tracked (do not add ignores that would catch these):
 #   docs/RetroFE/Git-Operating-Procedure.md
 #   docs/RetroFE/Layout-Hot-Reload-Blueprint.md
+#   docs/RetroFE/Settings-Menu-Reboot-Restore.md
 #   docs/RetroFE/RetroFE Modernization and Performance.md
 # Ignored below: upstream manuals, wiki mirrors and the binaries that come with
 # them. This repo is already ~360 MiB of git objects, so reference material that

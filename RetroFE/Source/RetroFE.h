@@ -121,6 +121,7 @@ private:
 	void            saveRetroFEState( );
     void            saveRestoreState( );
     void            loadRestoreState( );
+    bool            hasPendingRestore( );
     RETROFE_STATE   restoreNextTier( );
     void            writeSavedSettings( const std::vector<std::string> &restoreLines );
 
