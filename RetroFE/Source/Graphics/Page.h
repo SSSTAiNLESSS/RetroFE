@@ -101,8 +101,11 @@ public:
     CollectionInfo *getCollection();
     // Layout hot-reload: adopt the animation sets from a page freshly built off
     // the current layout.xml, leaving this page's structure, collections, menu
-    // depth and per-component animation state untouched. Returns false and
-    // changes nothing if the two pages are not structurally identical.
+    // depth and per-component animation state untouched. Components are matched
+    // by structural key (type + layer + id), not by array index, so a benign
+    // count drift no longer aborts the reload; anything unmatched keeps its
+    // existing tweens. Returns false and changes nothing only if the fresh page
+    // is unusable (null, or nothing matched -- a malformed / half-written file).
     bool reapplyTweensFrom( Page *fresh, std::string &reason );
     void  setMinShowTime(float value);
     float getMinShowTime();
@@ -149,6 +152,8 @@ public:
 
 private:
     void playlistChange();
+    // Stable identity key for tween transplanting during layout hot-reload.
+    static std::string componentKey(Component *c);
     std::string collectionName_;
     Configuration &config_;
 

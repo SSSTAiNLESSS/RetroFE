@@ -2,7 +2,7 @@
 
 Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`.
 
-**Last updated:** 2026-07-24
+**Last updated:** 2026-07-28
 **Branch at handover:** `feature/layout-hot-reload` (cut from
 `feature/data-modernization` @ `ecea8ab`)
 
@@ -10,11 +10,51 @@ Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`
 
 ## 1. Where things stand
 
-> ⚡ **Resuming? Slice 1 (layout hot-reload) is BUILT and deployed to the test rig at
-> `K:\RetroFE-Testies`. The one thing waiting on a human is in §9: run it, press F5, and
-> report whether the tween edit took at 2–3 tiers deep. Everything else is committed and clean.**
+> ⚡ **Resuming? Slice 1 (layout hot-reload) is DONE and CONFIRMED ON THE RIG.** F5 re-tweens
+> the live page on every press, at any tier depth. A brittle-guard bug found and fixed this
+> session (below) was the last blocker. **Next up is the file watcher** so edits reload without
+> pressing F5 (Blueprint §2.2, already fully specced) — see "Next single action".
 
-### This session (2026-07-24) — spike answered, then PIVOTED the whole approach
+### This session (2026-07-28) — slice 1 confirmed working; fixed the guard that broke repeat reloads
+
+The on-rig test finally ran, and it exposed a real bug before it passed.
+
+**Symptom the user hit:** F5 appeared to "do nothing." Investigation (logs on
+`K:\RetroFE-Testies`, not guessed) showed F5 *was* firing every press and reaching the reload
+handler — but the reload kept being **vetoed by its own structure guard**, which logged
+`component count changed (56 -> 55)`. The tell was "works once, then never": the guard demanded
+the live page and a freshly-parsed page have an **identical** `LayerComponents` count, and that
+count legitimately drifts.
+
+**Root cause (verified in source):** `PageBuilder` adds components conditionally (`if(c)`,
+`PageBuilder.cpp:788`) — a missing art file or a context-dependent type means a build can yield
+one or two fewer/more components. The live page freezes its count at build time; a fresh parse
+reflects the file *now*. Any drift → the old exact-count check (`Page.cpp`) aborted **every**
+reload from then on. Worse, it then paired tweens by **array index**, which would scramble the
+theme if any component were added/dropped mid-list — so it *couldn't* just be loosened.
+
+**The fix (committed this session):** rewrote `Page::reapplyTweensFrom()` to match components by
+a **stable structural key — concrete type (`typeid`) + layer + authored id** — instead of array
+index. Fresh components are bucketed by key and consumed in document order; each live component
+takes the next fresh component with the same key. Anything unmatched **keeps its existing tweens**
+(never a wrong pairing → never a scramble — strictly safer than the old index pairing). The
+whole-reload rejection is gone; the only remaining refusals are `fresh == null` and
+`moved == 0` (a malformed/half-written file that parsed to near-nothing → keep current layout).
+New helper `Page::componentKey()` (static). Added `<map>/<typeinfo>/<utility>` includes.
+
+Files: `RetroFE/Source/Graphics/Page.cpp`, `RetroFE/Source/Graphics/Page.h`. Clean Release build
+(Win32, no warnings), deployed to `K:\RetroFE-Testies\core\retrofe.exe`. **User confirmed: F5 now
+takes on every press, at depth.**
+
+**Gotchas re-confirmed for the next tester (these cost time this session):**
+- Highlight animations only replay on **scroll** — F5 swaps the tween in, the next scroll plays it.
+- Editing a **commented-out** component (Aeon Nox's fanart block, `layout.xml:21-34`) does nothing.
+- `menuIndex="0"` blocks only animate at the **top** tier; use a no-`menuIndex` block (e.g. the
+  main preview video's `onHighlightEnter`, `layout.xml:1046`) to test at arbitrary depth.
+- **Structural** edits (comment/uncomment a component) still need a **restart** — they just no
+  longer poison later reloads; the changed component is skipped and the rest still reload.
+
+### Previously (2026-07-24) — spike answered, then PIVOTED the whole approach
 
 Two big results this session.
 
@@ -154,18 +194,22 @@ the test target.
 
 ### Next single action
 
-**Run `K:\RetroFE-Testies\core\retrofe.exe`, press F5 after editing a tween, confirm it takes at
-2–3 tiers deep.** Full numbered test plan (3 tests) in §9. Requires a human: it's a running
-frontend, an agent shell can't press F5 or watch the window.
+**Build the file watcher** (Blueprint §2.2, already fully specced — don't re-derive it). The
+"does tween-reapply work at arbitrary depth?" question is now answered YES on the rig, so this is
+no longer gated on a manual test:
 
-The question it answers: **does tween-reapply work, and does it hold up at arbitrary tier depth?**
-- **Works at depth** → build the file watcher: poll mtime+size @250 ms, debounce across 2 polls,
-  gate on `layoutHotReload` (default false, read via `config_.getProperty(key, bool&)`). F5 stays
-  as the manual override. Blueprint §2.2 already decided all of it.
-- **Broken** → paste the `Layout reload:` log line + what you saw; the reason string names why.
+- Poll `layout.xml`'s mtime+size **@250 ms**; the watcher must track the *set* of candidate paths
+  (aspect-specific `layout <W>x<H>.xml` and the plain `layout.xml`), including ones not yet existing.
+- **Debounce** by requiring the stat stable across **2 polls** (editors write partial files).
+- On a stable change, fire the existing `RETROFE_RELOAD_LAYOUT_REQUEST` — the same path F5 uses,
+  which now goes through the fixed `reapplyTweensFrom()`. F5 stays as the manual override.
+- **Gate on `layoutHotReload`** (default false) via `config_.getProperty(key, bool&)`
+  (`Configuration.h:36`), so shipped CORE builds are untouched.
 
-**If the next session opens and it still hasn't been run:** don't build the watcher on a guess.
-Either prompt for the test, or pick up something genuinely independent — the integration branch
+The reload engine underneath it is done and proven; this slice is purely the trigger. Test it the
+same way (edit a value, watch it reload with no keypress) on `K:\RetroFE-Testies`.
+
+**Genuinely independent alternatives** if you'd rather not touch the watcher: the integration-branch
 gap (§7, "Still missing") or importing the code-tuned Qwen GGUF into Ollama (§6).
 
 ---
@@ -366,7 +410,7 @@ not 563 KB. Mechanics, if ever needed again: `M:\CORE - TYPE R\.claude\KNOWLEDGE
 
 | Branch | Tip | State |
 |---|---|---|
-| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) built, awaiting on-rig test; **not pushed** |
+| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher is next; **not pushed** |
 | `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **not pushed** |
 | `feature/vlc-replacement` | `06de5ed` | in sync with origin ✅ |
 | `feature/mixed-collections` | `2acf7b6` | in sync with origin |
@@ -595,9 +639,11 @@ the origin of `=2.31.0` (it held captured `pip install requests>=2.31.0` output,
 
 ## 9. Layout hot-reload — how to test it
 
-Built and deployed 2026-07-24 to `K:\RetroFE-Testies`, **not yet run**. Needs a human: it's a
-running frontend, an agent shell can't press F5 or watch the window. Runs windowed
-(`fullscreen = no`) so you can keep an editor beside it.
+**CONFIRMED PASSED 2026-07-28** — F5 re-tweens on every press at depth (after the guard fix in §1).
+Kept below as the re-test procedure for the watcher slice. Runs windowed (`fullscreen = no`) so you
+can keep an editor beside it. Note the deployed rig `layout.xml` currently has the fanart block
+re-commented and the main preview video's `onHighlightEnter` (line 1046) left at `duration="3"`
+from testing — harmless, revert if you want the stock theme back.
 
 Reset the rig between runs any time: `.\Scripts\test_fixture.ps1 -Action Restore -Force`
 

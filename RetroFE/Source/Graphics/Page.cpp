@@ -26,6 +26,9 @@
 #include "PageBuilder.h"
 #include <algorithm>
 #include <sstream>
+#include <map>
+#include <typeinfo>
+#include <utility>
 
 
 Page::Page(Configuration &config, int layoutWidth, int layoutHeight)
@@ -1491,54 +1494,63 @@ bool Page::reapplyTweensFrom( Page *fresh, std::string &reason )
         return false;
     }
 
-    // Structure must be identical, or index-based matching would pair up the
-    // wrong components and scramble the theme. Bail without touching anything.
-    if(fresh->LayerComponents.size() != LayerComponents.size())
-    {
-        reason = "component count changed (" + std::to_string(LayerComponents.size()) +
-                 " -> " + std::to_string(fresh->LayerComponents.size()) +
-                 "); adding or removing a component still needs a restart";
-        return false;
-    }
+    // An EXACT component count is deliberately NOT required. PageBuilder adds
+    // components conditionally (a missing art file, a context-dependent type),
+    // so two builds of the same layout can legitimately differ by a component
+    // or two -- and the live page's count is frozen at build time while the
+    // freshly-parsed one reflects the file right now. The old code demanded the
+    // two counts be identical, which meant a single drifting component vetoed
+    // EVERY reload from then on. Instead of pairing tweens by array index --
+    // which scrambles the theme the instant one component is added or dropped
+    // mid-list -- pair by a stable structural key (concrete type + layer + id).
+    // Same-key components are consumed in document order, so the Nth live
+    // "Image on layer 11" takes the Nth fresh "Image on layer 11". A live
+    // component with no fresh counterpart simply keeps the tweens it already
+    // has: never a wrong pairing, so never a scramble.
 
-    // The live page can hold MORE menu levels than the layout declares, because
-    // pushCollection() clones a level each time the user goes a tier deeper.
-    // Those clones derive from the deepest authored level, so clamp to it.
-    if(fresh->menus_.size() == 0 && menus_.size() > 0)
+    // Bucket the fresh page's components by structural key, preserving document
+    // order within each bucket; a per-key cursor walks each bucket in step.
+    std::map<std::string, std::vector<Component *> > freshByKey;
+    for(unsigned int i = 0; i < fresh->LayerComponents.size(); ++i)
     {
-        reason = "layout declares no menus but the live page has " +
-                 std::to_string(menus_.size());
-        return false;
+        Component *c = fresh->LayerComponents[i];
+        if(c)
+            freshByKey[componentKey(c)].push_back(c);
     }
+    std::map<std::string, unsigned int> cursor;
 
-    for(unsigned int i = 0; i < menus_.size(); ++i)
-    {
-        unsigned int f = (i < fresh->menus_.size()) ? i : (unsigned int)fresh->menus_.size() - 1;
-        if(menus_[i].size() != fresh->menus_[f].size())
-        {
-            reason = "menu level " + std::to_string(i) + " changed size";
-            return false;
-        }
-    }
-
-    // Past this point nothing can fail, so the swap is all-or-nothing.
-    unsigned int moved = 0;
+    unsigned int moved   = 0;
+    unsigned int skipped = 0;
 
     for(unsigned int i = 0; i < LayerComponents.size(); ++i)
     {
-        if(LayerComponents[i] && fresh->LayerComponents[i])
+        Component *live = LayerComponents[i];
+        if(!live)
+            continue;
+
+        std::string key = componentKey(live);
+        std::map<std::string, std::vector<Component *> >::iterator it = freshByKey.find(key);
+        if(it != freshByKey.end() && cursor[key] < it->second.size())
         {
-            LayerComponents[i]->setTweens(fresh->LayerComponents[i]->getTweens());
+            live->setTweens(it->second[cursor[key]++]->getTweens());
             ++moved;
+        }
+        else
+        {
+            ++skipped;
         }
     }
 
-    for(unsigned int i = 0; i < menus_.size(); ++i)
+    // Menu widgets live in menus_ and are structurally regular per level; the
+    // live page can carry extra cloned levels (one per collection tier), so
+    // clamp to the deepest authored level and bounds-check every index rather
+    // than rejecting on a size difference.
+    for(unsigned int i = 0; i < menus_.size() && fresh->menus_.size() > 0; ++i)
     {
         unsigned int f = (i < fresh->menus_.size()) ? i : (unsigned int)fresh->menus_.size() - 1;
         for(unsigned int j = 0; j < menus_[i].size(); ++j)
         {
-            if(menus_[i][j] && fresh->menus_[f][j])
+            if(j < fresh->menus_[f].size() && menus_[i][j] && fresh->menus_[f][j])
             {
                 menus_[i][j]->setTweens(fresh->menus_[f][j]->getTweens());
                 ++moved;
@@ -1546,9 +1558,34 @@ bool Page::reapplyTweensFrom( Page *fresh, std::string &reason )
         }
     }
 
+    // Nothing matched at all -- almost certainly a malformed or half-written
+    // file that parsed to near-nothing. Keep the running layout rather than
+    // wiping every component's animations.
+    if(moved == 0)
+    {
+        reason = "no components matched the current layout; keeping current "
+                 "layout (file may be malformed or mid-save)";
+        return false;
+    }
+
     reason = std::to_string(moved) + " components re-tweened at menu depth " +
              std::to_string(menuDepth_);
+    if(skipped > 0)
+        reason += " (" + std::to_string(skipped) + " unmatched, left as-is)";
     return true;
+}
+
+
+// Stable identity for tween transplanting: concrete C++ type + render layer +
+// authored id. Two builds of the same layout produce the same key for the same
+// authored component, even if unrelated components around it were conditionally
+// added or dropped. id defaults to -1 (no "id" attribute), so id-less
+// components fall back to being matched by type+layer in document order.
+std::string Page::componentKey(Component *c)
+{
+    return std::string(typeid(*c).name()) + "#" +
+           std::to_string(c->baseViewInfo.Layer) + "#" +
+           std::to_string(c->getId());
 }
 
 
