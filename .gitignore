@@ -22,30 +22,52 @@ log.txt
 RetroFE/Build/
 RetroFE/Build_1_4/
 
-# AI Development (not for commits)
+##############################################################################
+# WHAT BELONGS ON GITHUB -- the rule (set by STAiNLESS, 2026-07-28)
+#
+# Track a file only if it is one of:
+#   1. vanilla RetroFE, inherited from upstream
+#   2. a new or altered engine file
+#   3. something a public user needs
+#   4. something a PR needs
+#
+# Everything else -- AI session state, agent tooling, internal roadmaps and
+# our own process docs -- is LOCAL TO THIS MACHINE and never pushed. Those
+# files still live on disk and still work; they are simply not tracked.
+#
+# Do not re-add any of these on the argument that tracking makes them survive
+# a fresh clone or get inherited by new branches. That is an internal
+# convenience, and it is exactly what this rule rejects: the public fork
+# should read as RetroFE plus our changes, nothing else.
+##############################################################################
+
+# AI session state and agent tooling -- local only
 .claude/
 CLAUDE.md
+HANDOVER.md
 reflections.json
 .vscode/
 build.log
 nul
 .mcp.json
 Scripts/mcp-servers/
-docs/*.md
+Scripts/check_branch_ready.ps1
 
-# docs/ is deliberately PARTIALLY tracked. The rule:
-#   engine design docs are tracked; reference material and agent tooling are not.
-# Tracked (do not add ignores that would catch these):
-#   docs/RetroFE/Git-Operating-Procedure.md
-#   docs/RetroFE/Layout-Hot-Reload-Blueprint.md
-#   docs/RetroFE/RetroFE Modernization and Performance.md
-# Ignored below: upstream manuals, wiki mirrors and the binaries that come with
-# them. This repo is already ~360 MiB of git objects, so reference material that
-# can be re-downloaded stays out of history.
+# docs/ is deliberately PARTIALLY tracked, on the same rule.
+# TRACKED -- documentation a public user of a shipped feature needs:
+#   docs/RetroFE/Settings-Menu-Reboot-Restore.md
+#     (the only written record of the launcher "reboot = yes" property
+#      anywhere, upstream included -- rule 3)
+# IGNORED below -- internal roadmaps, design blueprints, our git procedure,
+# and upstream reference material that can simply be re-downloaded.
+docs/*.md
 docs/RetroFE_Wiki/
 docs/RetroFE/retrofe_clean_manual.md
 docs/RetroFE/retrofe_knowledge_base.md
 docs/RetroFE/*.pdf
+docs/RetroFE/RetroFE Modernization and Performance.md
+docs/RetroFE/Git-Operating-Procedure.md
+docs/RetroFE/Layout-Hot-Reload-Blueprint.md
 
 # Rust build artifacts (RustCore/target reaches 2+ GB with bundled DuckDB)
 RetroFE/Source/RustCore/target/
