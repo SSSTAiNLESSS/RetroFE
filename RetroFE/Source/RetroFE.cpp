@@ -499,6 +499,10 @@ bool RetroFE::run( )
 
                     currentPage_->pushCollection(info);
 
+                    // Root of the navigation route recorded for reboot restore.
+                    collectionPath_.clear( );
+                    collectionPath_.push_back( firstCollection );
+
                     config_.getProperty( "firstPlaylist", firstPlaylist_ );
                     currentPage_->selectPlaylist( firstPlaylist_ );
                     if (currentPage_->getPlaylistName() != firstPlaylist_ )
@@ -684,6 +688,9 @@ bool RetroFE::run( )
 
                 currentPage_->pushCollection(info);
 
+                // Descending a tier: extend the recorded route.
+                collectionPath_.push_back( nextPageName );
+
                 bool rememberMenu = false;
                 config_.getProperty( "rememberMenu", rememberMenu );
 
@@ -814,6 +821,12 @@ bool RetroFE::run( )
                     currentPage_->popCollection( );
                 }
                 config_.setProperty( "currentCollection", currentPage_->getCollectionName( ) );
+
+                // Stepping out to a sibling collection: drop this tier from the
+                // route. The re-entry goes through RETROFE_NEXT_PAGE_MENU_EXIT,
+                // which pushes the sibling's name back on.
+                if ( collectionPath_.size( ) > 1 )
+                    collectionPath_.pop_back( );
 
                 bool rememberMenu = false;
                 config_.getProperty( "rememberMenu", rememberMenu );
@@ -1012,6 +1025,11 @@ bool RetroFE::run( )
                 }
                 config_.setProperty( "currentCollection", currentPage_->getCollectionName( ) );
 
+                // Stepping out to a sibling collection -- see the matching note
+                // in RETROFE_COLLECTION_DOWN_EXIT.
+                if ( collectionPath_.size( ) > 1 )
+                    collectionPath_.pop_back( );
+
                 bool rememberMenu = false;
                 config_.getProperty( "rememberMenu", rememberMenu );
 
@@ -1141,6 +1159,10 @@ bool RetroFE::run( )
                 {
                     attract_.reset( );
                     reboot_ = true;
+                    // Only on this branch: a normal launch must not leave a
+                    // route behind, or an ordinary start would teleport the
+                    // user into wherever they last played a game.
+                    saveRestoreState( );
                     state   = RETROFE_QUIT_REQUEST;
                 }
                 else
@@ -1195,6 +1217,11 @@ bool RetroFE::run( )
                     currentPage_->popCollection( );
                 }
                 config_.setProperty( "currentCollection", currentPage_->getCollectionName( ) );
+
+                // Backing up a tier (this also covers leaving menu mode, which
+                // exits through here): shorten the recorded route.
+                if ( collectionPath_.size( ) > 1 )
+                    collectionPath_.pop_back( );
 
                 bool rememberMenu = false;
                 config_.getProperty( "rememberMenu", rememberMenu );
@@ -1269,6 +1296,10 @@ bool RetroFE::run( )
                 config_.setProperty( "currentCollection", "menu" );
                 CollectionInfo *info = getMenuCollection( "menu" );
                 currentPage_->pushCollection(info);
+
+                // Menu mode is a real tier -- it leaves via RETROFE_BACK_MENU_EXIT,
+                // which pops -- so record it to keep pushes and pops balanced.
+                collectionPath_.push_back( "menu" );
                 currentPage_->onNewItemSelected( );
                 currentPage_->reallocateMenuSpritePoints( );
                 state = RETROFE_MENUMODE_START_LOAD_ART;
@@ -1991,5 +2022,114 @@ void RetroFE::saveRetroFEState( )
     catch(std::exception &)
     {
         Logger::write(Logger::ZONE_ERROR, "RetroFE", "Save failed: " + file);
+    }
+}
+
+
+// Persist the navigation route so the next start can walk back to it.
+//
+// Only used for launcher-initiated reboots (a launcher with "reboot = yes"),
+// where the user is changing a setting from an on-screen menu and expects to
+// land back on that menu rather than at the top of the tree. The route is
+// replayed rather than reconstructed: a page's appearance is the accumulated
+// result of the whole navigation, not a function of its final depth, so
+// jumping straight to the deepest tier would leave everything established
+// higher up at its authored alpha.
+//
+// Written into settings_saved.conf, which Main.cpp imports ahead of every
+// other config file. The file is rewritten whole, so firstPlaylist -- the key
+// saveRetroFEState() owns -- is carried through here rather than being lost.
+void RetroFE::saveRestoreState( )
+{
+    bool restoreStateOnReboot = false;
+    config_.getProperty( "restoreStateOnReboot", restoreStateOnReboot );
+    if ( !restoreStateOnReboot || collectionPath_.empty( ) )
+        return;
+
+    // lastMenuOffsets_ / lastMenuPlaylists_ are only written on a tier
+    // transition, so the tier the user is standing on right now is not in them
+    // yet. Record it before serialising.
+    if ( currentPage_ )
+    {
+        lastMenuOffsets_[currentPage_->getCollectionName( )]   = currentPage_->getScrollOffsetIndex( );
+        lastMenuPlaylists_[currentPage_->getCollectionName( )] = currentPage_->getPlaylistName( );
+    }
+
+    std::string path;
+    std::string offsets;
+    std::string playlists;
+
+    for ( size_t i = 0; i < collectionPath_.size( ); ++i )
+    {
+        std::string name     = collectionPath_[i];
+        std::string playlist = "all";
+        unsigned int offset  = 0;
+
+        if ( lastMenuPlaylists_.find( name ) != lastMenuPlaylists_.end( ) )
+            playlist = lastMenuPlaylists_[name];
+        if ( lastMenuOffsets_.find( name ) != lastMenuOffsets_.end( ) )
+            offset = lastMenuOffsets_[name];
+
+        // "|" separates the fields and "#" opens a comment in the config parser
+        // (Utils::filterComments), so either character would read back as a
+        // different route. Refuse to write rather than send the user somewhere
+        // unexpected on the next start.
+        if ( name.find_first_of( "|#" )     != std::string::npos ||
+             playlist.find_first_of( "|#" ) != std::string::npos )
+        {
+            Logger::write( Logger::ZONE_WARNING, "RetroFE",
+                "Not saving restore state: \"" + name + "\" / \"" + playlist +
+                "\" contains | or #, which the config format cannot carry" );
+            return;
+        }
+
+        if ( i > 0 )
+        {
+            path      += "|";
+            offsets   += "|";
+            playlists += "|";
+        }
+        path      += name;
+        offsets   += std::to_string( offset );
+        playlists += playlist;
+    }
+
+    std::string file = Utils::combinePath( Configuration::absolutePath, "settings_saved.conf" );
+
+    // Keep every line this function does not own. settings_saved.conf is
+    // imported ahead of settings.conf and Configuration uses map::insert, which
+    // does not overwrite -- so anything left here silently outranks the user's
+    // settings.conf forever. Rewriting the file wholesale would pin firstPlaylist
+    // for people who never asked to save it.
+    std::vector<std::string> kept;
+    std::ifstream in( file.c_str( ) );
+    if ( in.good( ) )
+    {
+        std::string line;
+        while ( std::getline( in, line ) )
+        {
+            std::string key = Utils::trimEnds( line.substr( 0, line.find( "=" ) ) );
+            if ( key != "restorePath" && key != "restoreOffsets" && key != "restorePlaylists" )
+                kept.push_back( line );
+        }
+        in.close( );
+    }
+
+    std::ofstream filestream;
+    try
+    {
+        filestream.open( file.c_str( ) );
+        for ( size_t i = 0; i < kept.size( ); ++i )
+            filestream << kept[i] << std::endl;
+        filestream << "restorePath = "      << path      << std::endl;
+        filestream << "restoreOffsets = "   << offsets   << std::endl;
+        filestream << "restorePlaylists = " << playlists << std::endl;
+        filestream.close( );
+        Logger::write( Logger::ZONE_INFO, "RetroFE",
+            "Saved restore state: " + path + " @ " + offsets );
+    }
+    catch( std::exception & )
+    {
+        Logger::write( Logger::ZONE_ERROR, "RetroFE", "Save failed: " + file );
     }
 }

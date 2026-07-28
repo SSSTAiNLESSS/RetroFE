@@ -30,6 +30,7 @@
 #include <stack>
 #include <map>
 #include <string>
+#include <vector>
 
 
 class CollectionInfo;
@@ -118,6 +119,7 @@ private:
     CollectionInfo *getCollection( std::string collectionName );
     CollectionInfo *getMenuCollection( std::string collectionName );
 	void            saveRetroFEState( );
+    void            saveRestoreState( );
 
     Configuration     &config_;
     DB                *db_;
@@ -141,4 +143,12 @@ private:
 
     std::map<std::string, unsigned int> lastMenuOffsets_;
     std::map<std::string, std::string>  lastMenuPlaylists_;
+
+    // Ordered list of collection names from the root down to wherever the user
+    // currently is, e.g. { "Main", "SETTINGS TITAN" }. lastMenuOffsets_ and
+    // lastMenuPlaylists_ already record the position *within* each collection
+    // but are keyed by name and so carry no ordering; this supplies the route
+    // that has to be walked again to get back here after a launcher reboot.
+    // Pushed on descent, popped on ascent -- see saveRestoreState().
+    std::vector<std::string> collectionPath_;
 };
