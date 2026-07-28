@@ -84,14 +84,55 @@ One line, then do it. Example of the right tone:
 Then `git switch -c <name> <parent>`. No approval loop for the git part; the *feature* still
 follows the normal blueprint → go → build → prove it rhythm from `CLAUDE.md`.
 
-### Step 6 — Replace CHANGELOG.md before the feature is done
+---
 
-**This repo carries a per-branch `CHANGELOG.md` at the root, and it is the first thing anyone
-sees on GitHub.** It describes *that branch's* modification only — not a running history. A new
-branch inherits its parent's changelog, so leaving it untouched means the branch advertises
-somebody else's feature.
+## 2a. Definition of done — run this checklist, do not recall it
 
-Format (follow `origin/fix/tween-easing-bugs` — the cleanest example):
+**Read this before saying a feature is finished.** Every item is a convention this repo actually
+follows, established by auditing what real branches contain — not by memory.
+
+- [ ] **`CHANGELOG.md` at the repo root replaced.** Not appended — *replaced*. See §2b.
+- [ ] **New `settings.conf` key documented** in `Package/Environment/Common/settings.conf`,
+      the shipped template, with an aligned inline comment next to related keys.
+- [ ] **New launcher property documented** in `Package/Environment/Common/launchers/Main.conf`.
+- [ ] **Design doc in `docs/RetroFE/`** if the feature has non-obvious mechanics, *and* its
+      filename added to the tracked-docs list in `.gitignore` (`docs/` is partially tracked).
+- [ ] **`HANDOVER.md` refreshed** — §1 "where things stand" and §5 branch map.
+- [ ] **Clean Release build**, Win32, no warnings.
+- [ ] **Verified by running it**, with the evidence quoted. Not "should work".
+- [ ] **Committed and pushed** to `origin`.
+- [ ] **`submissions/pull_requests.md` considered** — see §2b.
+
+### Why this section exists
+
+The first version of this document was written from STAiNLESS's interview answers: branch
+topology, PR intent, backup policy. All correct, and all useless for the thing that actually went
+wrong — on 2026-07-28 a feature was declared finished with a `CHANGELOG.md` still advertising a
+different branch's feature, and **STAiNLESS had to catch it**, which is precisely what he had
+delegated away.
+
+The failure was not forgetfulness. The evidence was already in this session's own output: a
+commit titled *"Docs: Add branch-specific changelog"* appeared in a `git log` that had been read,
+and was not followed up.
+
+**The rule that prevents a repeat: derive procedure from the repo, not from the conversation.**
+Before writing or trusting any "how we work here" claim, run the audit in §2b. A convention that
+exists in the repo but not in this file is a bug in this file.
+
+---
+
+## 2b. Repo conventions — audited 2026-07-28, re-audit before trusting
+
+Established by `git diff --name-only upstream/master origin/<branch>` across all four PR-shaped
+branches. Re-run that command to check nothing has drifted.
+
+### `CHANGELOG.md` — universal, all four branches
+
+A per-branch changelog at the repo root, describing **that branch's modification only** — not a
+running history. It is the first thing shown on GitHub. A new branch inherits its parent's
+changelog, so leaving it untouched means the branch advertises somebody else's feature.
+
+Format (follow `origin/fix/tween-easing-bugs`, the cleanest example):
 
 ```markdown
 # Changelog: Feature/Branch-Name
@@ -104,9 +145,27 @@ One paragraph: what this branch does and why.
 - **Thing**: what and why.
 ```
 
-**Known debt, spotted 2026-07-28:** `feature/layout-hot-reload` and
-`feature/data-modernization` both still carry `# Changelog: Feature/Mixed-Collections`,
-inherited and never replaced. Fix when next working on either.
+### `submissions/pull_requests.md` — on two branches
+
+A prepared PR submission guide: ready-to-paste PR titles and bodies per branch. It fits the
+standing "keep the door open for PRs" decision (§1), so a substantial feature should add its
+entry.
+
+⚠️ **Three problems with it as it stands, all verified:**
+- `submissions/` is **gitignored on the current branches** (`.gitignore:20`) but **tracked on
+  origin's PR branches**. The two tracks disagree.
+- Its contents are **stale**: it references remote `origin-fork` and
+  `github.com/SSSTAiNLESSS/RetroFE`, neither of which is current (§3).
+- It does not exist on disk in this working tree.
+
+Do not silently "fix" this by un-ignoring it — ask STAiNLESS whether the PR guide is still wanted
+before reviving it. Until then, treat the checklist item as "considered and skipped, with reason".
+
+### Known debt — changelogs never replaced
+
+`feature/layout-hot-reload` and `feature/data-modernization` both still carry
+`# Changelog: Feature/Mixed-Collections`, inherited and never replaced. Fix when next working on
+either branch.
 
 ---
 

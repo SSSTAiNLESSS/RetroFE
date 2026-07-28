@@ -7,6 +7,11 @@ Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`
 > **`docs/RetroFE/Git-Operating-Procedure.md`**. It carries the standing decisions (already
 > interviewed — do not re-ask), the five-step intake rule for "let's make X", and the
 > two-track local/remote trap in §3. Decide and state; never make STAiNLESS choose a base.
+>
+> ⛔ **Run its §2a "Definition of done" checklist before calling anything finished.** It is a
+> checklist to execute, not recall. §2b lists the repo conventions it enforces — including the
+> per-branch `CHANGELOG.md` that must be **replaced**, which was missed on 2026-07-28 and had to
+> be caught by STAiNLESS. That is the failure mode this whole document exists to prevent.
 
 **Last updated:** 2026-07-28
 **Branch at handover:** `feature/settings-reboot-restore` (cut from
