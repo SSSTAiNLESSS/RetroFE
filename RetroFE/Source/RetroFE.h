@@ -120,6 +120,9 @@ private:
     CollectionInfo *getMenuCollection( std::string collectionName );
 	void            saveRetroFEState( );
     void            saveRestoreState( );
+    void            loadRestoreState( );
+    RETROFE_STATE   restoreNextTier( );
+    void            writeSavedSettings( const std::vector<std::string> &restoreLines );
 
     Configuration     &config_;
     DB                *db_;
@@ -151,4 +154,9 @@ private:
     // that has to be walked again to get back here after a launcher reboot.
     // Pushed on descent, popped on ascent -- see saveRestoreState().
     std::vector<std::string> collectionPath_;
+
+    // Tiers of a saved route still to be walked after a launcher reboot, in
+    // order, excluding the root. Drained one tier per RETROFE_IDLE by
+    // restoreNextTier(); empty at all other times.
+    std::vector<std::string> pendingRestore_;
 };

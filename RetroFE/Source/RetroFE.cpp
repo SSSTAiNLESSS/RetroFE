@@ -33,6 +33,7 @@
 #include "Graphics/Component/Video.h"
 #include "Video/VideoFactory.h"
 #include <algorithm>
+#include <cstdlib>
 #include <dirent.h>
 #include <fstream>
 #include <sstream>
@@ -423,6 +424,15 @@ bool RetroFE::run( )
 
             currentPage_->cleanup( );
 
+            // Walk one more tier of a pending reboot restore before handing
+            // control back to the user. Every tier passes through here, so one
+            // hook covers the whole descent.
+            if ( currentPage_ && !splashMode && !pendingRestore_.empty( ) && currentPage_->isIdle( ) )
+            {
+                state = restoreNextTier( );
+                break;
+            }
+
             // Not in splash mode
             if ( currentPage_ && !splashMode )
             {
@@ -494,6 +504,12 @@ bool RetroFE::run( )
                     std::string firstCollection = "Main";
 
                     config_.getProperty( "firstCollection", firstCollection );
+
+                    // Queues any route left by a launcher reboot. Must run
+                    // before the root collection is pushed, because it seeds
+                    // the lastMenu* maps the descent then reads back.
+                    loadRestoreState( );
+
                     config_.setProperty( "currentCollection", firstCollection );
                     CollectionInfo *info = getCollection(firstCollection);
 
@@ -2094,13 +2110,29 @@ void RetroFE::saveRestoreState( )
         playlists += playlist;
     }
 
+    std::vector<std::string> lines;
+    lines.push_back( "restorePath = "      + path );
+    lines.push_back( "restoreOffsets = "   + offsets );
+    lines.push_back( "restorePlaylists = " + playlists );
+    writeSavedSettings( lines );
+
+    Logger::write( Logger::ZONE_INFO, "RetroFE",
+        "Saved restore state: " + path + " @ " + offsets );
+}
+
+
+// Rewrite settings_saved.conf with the restore keys replaced by restoreLines
+// (pass an empty list to simply clear them).
+//
+// Every other line is preserved. That file is imported ahead of settings.conf
+// and Configuration uses map::insert, which does not overwrite -- so anything
+// left here silently outranks the user's settings.conf forever. Rewriting it
+// wholesale would pin keys like firstPlaylist for people who never asked to
+// save them.
+void RetroFE::writeSavedSettings( const std::vector<std::string> &restoreLines )
+{
     std::string file = Utils::combinePath( Configuration::absolutePath, "settings_saved.conf" );
 
-    // Keep every line this function does not own. settings_saved.conf is
-    // imported ahead of settings.conf and Configuration uses map::insert, which
-    // does not overwrite -- so anything left here silently outranks the user's
-    // settings.conf forever. Rewriting the file wholesale would pin firstPlaylist
-    // for people who never asked to save it.
     std::vector<std::string> kept;
     std::ifstream in( file.c_str( ) );
     if ( in.good( ) )
@@ -2121,15 +2153,154 @@ void RetroFE::saveRestoreState( )
         filestream.open( file.c_str( ) );
         for ( size_t i = 0; i < kept.size( ); ++i )
             filestream << kept[i] << std::endl;
-        filestream << "restorePath = "      << path      << std::endl;
-        filestream << "restoreOffsets = "   << offsets   << std::endl;
-        filestream << "restorePlaylists = " << playlists << std::endl;
+        for ( size_t i = 0; i < restoreLines.size( ); ++i )
+            filestream << restoreLines[i] << std::endl;
         filestream.close( );
-        Logger::write( Logger::ZONE_INFO, "RetroFE",
-            "Saved restore state: " + path + " @ " + offsets );
     }
     catch( std::exception & )
     {
         Logger::write( Logger::ZONE_ERROR, "RetroFE", "Save failed: " + file );
     }
+}
+
+
+// "Main|SETTINGS TITAN" -> { "Main", "SETTINGS TITAN" }
+static std::vector<std::string> splitRoute( const std::string &value )
+{
+    std::vector<std::string> parts;
+    std::string::size_type   start = 0;
+
+    while ( true )
+    {
+        std::string::size_type pos = value.find( '|', start );
+        if ( pos == std::string::npos )
+        {
+            parts.push_back( value.substr( start ) );
+            break;
+        }
+        parts.push_back( value.substr( start, pos - start ) );
+        start = pos + 1;
+    }
+
+    return parts;
+}
+
+
+// Read back the route saved by saveRestoreState() and queue the tiers below
+// the root in pendingRestore_, seeding the per-collection position maps the
+// existing rememberMenu code already reads.
+//
+// The saved root is deliberately ignored: the run always starts at whatever
+// firstCollection currently says, so editing that setting can never strand the
+// user somewhere unexpected. If the root has changed, the first tier simply
+// will not be found and the restore stops there.
+//
+// The keys are consumed here -- stripped from settings_saved.conf -- so the
+// next ordinary start does not silently teleport back into a settings menu.
+void RetroFE::loadRestoreState( )
+{
+    pendingRestore_.clear( );
+
+    bool restoreStateOnReboot = false;
+    config_.getProperty( "restoreStateOnReboot", restoreStateOnReboot );
+    if ( !restoreStateOnReboot )
+        return;
+
+    std::string path;
+    std::string offsets;
+    std::string playlists;
+    config_.getProperty( "restorePath", path );
+    config_.getProperty( "restoreOffsets", offsets );
+    config_.getProperty( "restorePlaylists", playlists );
+
+    writeSavedSettings( std::vector<std::string>( ) );
+
+    if ( path.empty( ) )
+        return;
+
+    std::vector<std::string> names       = splitRoute( path );
+    std::vector<std::string> offsetsList = splitRoute( offsets );
+    std::vector<std::string> playlistList = splitRoute( playlists );
+
+    // A short companion list means the file was hand-edited or half-written.
+    // The route itself is still usable, so fall back per tier rather than
+    // throwing the whole restore away.
+    for ( size_t i = 0; i < names.size( ); ++i )
+    {
+        if ( i < offsetsList.size( ) )
+            lastMenuOffsets_[names[i]] = static_cast<unsigned int>( atoi( offsetsList[i].c_str( ) ) );
+        if ( i < playlistList.size( ) && !playlistList[i].empty( ) )
+            lastMenuPlaylists_[names[i]] = playlistList[i];
+    }
+
+    for ( size_t i = 1; i < names.size( ); ++i )
+        pendingRestore_.push_back( names[i] );
+
+    // The route is replayed regardless, but the scroll position *within* each
+    // collection is applied by the existing rememberMenu code. Without it the
+    // user lands in the right menu on the wrong entry, which looks like a bug
+    // rather than a setting -- so say so instead of degrading quietly.
+    bool rememberMenu = false;
+    config_.getProperty( "rememberMenu", rememberMenu );
+    if ( !rememberMenu )
+        Logger::write( Logger::ZONE_WARNING, "RetroFE",
+            "restoreStateOnReboot needs rememberMenu = yes to restore the selected item; "
+            "restoring the collection only" );
+
+    Logger::write( Logger::ZONE_INFO, "RetroFE", "Restoring position: " + path );
+}
+
+
+// Walk one tier of a pending restore.
+//
+// This drives the ordinary navigation states rather than jumping to the target
+// depth, and that is the whole point: a component only changes state when an
+// event fires AND it has a matching animation block at its current menuIndex,
+// so a page's appearance is the accumulated result of the entire descent, not
+// a function of its final depth. Teleporting would leave everything made
+// visible at a shallower tier sitting at its authored alpha.
+RetroFE::RETROFE_STATE RetroFE::restoreNextTier( )
+{
+    std::string target = pendingRestore_.front( );
+    pendingRestore_.erase( pendingRestore_.begin( ) );
+
+    CollectionInfo      *info  = currentPage_->getCollection( );
+    std::vector<Item *> *items = NULL;
+
+    if ( info )
+    {
+        CollectionInfo::Playlists_T::iterator it =
+            info->playlists.find( currentPage_->getPlaylistName( ) );
+        if ( it != info->playlists.end( ) )
+            items = it->second;
+    }
+
+    if ( items )
+    {
+        for ( unsigned int i = 0; i < items->size( ); ++i )
+        {
+            if ( (*items)[i]->name != target )
+                continue;
+
+            currentPage_->setScrollOffsetIndex( i );
+            currentPage_->onNewItemSelected( );
+            nextPageItem_ = currentPage_->getSelectedItem( );
+
+            if ( nextPageItem_ )
+            {
+                Logger::write( Logger::ZONE_INFO, "RetroFE", "Restoring: entering " + target );
+                return RETROFE_NEXT_PAGE_REQUEST;
+            }
+            break;
+        }
+    }
+
+    // A settings script may have renamed or removed the collection since the
+    // route was saved. Stop where we got to rather than failing -- the user
+    // lands one tier short, which is recoverable; a crash or a blank screen is
+    // not.
+    Logger::write( Logger::ZONE_WARNING, "RetroFE",
+        "Restore stopped: \"" + target + "\" not found in " + currentPage_->getCollectionName( ) );
+    pendingRestore_.clear( );
+    return RETROFE_IDLE;
 }
