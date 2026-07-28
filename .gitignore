@@ -23,7 +23,11 @@ RetroFE/Build/
 RetroFE/Build_1_4/
 
 # AI Development (not for commits)
-.claude/
+# .claude/* is ignored EXCEPT skills/ -- skills must be committed or they do not
+# survive a fresh clone and are not inherited by new branches, which defeats the
+# point of having them. Everything else here (settings.local.json, caches) stays out.
+.claude/*
+!.claude/skills/
 CLAUDE.md
 reflections.json
 .vscode/
