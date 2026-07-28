@@ -52,6 +52,7 @@ nul
 .mcp.json
 Scripts/mcp-servers/
 Scripts/check_branch_ready.ps1
+Scripts/test_fixture.ps1
 
 # docs/ is deliberately PARTIALLY tracked, on the same rule.
 # TRACKED -- documentation a public user of a shipped feature needs:
