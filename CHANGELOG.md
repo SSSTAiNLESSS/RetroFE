@@ -54,6 +54,18 @@ taken, walks it back on the next start, and skips the intro while doing so.
 - Warns when `restoreStateOnReboot` is set but `rememberMenu` is not, since the item-level
   position depends on it. Silent degradation there would read as a bug rather than a setting.
 
+### Tooling added on this branch
+Not part of the feature, but carried here and inherited by the CORE baseline:
+- **`feature-done` skill** (`.claude/skills/feature-done/`) and
+  **`Scripts/check_branch_ready.ps1`**: mechanical definition-of-done checks — per-branch
+  `CHANGELOG.md`, shipped `settings.conf` template, `docs/` tracking registration, `HANDOVER.md`,
+  push state, and whether the git procedure doc on the baseline is current. Added after a
+  convention was missed on this branch and had to be caught by STAiNLESS.
+- **`.gitignore` narrowed** from `.claude/` to `.claude/*` + `!.claude/skills/`, so skills are
+  committed and survive a fresh clone while `settings.local.json` and caches stay out. This also
+  surfaced `layout-lint` and `layout-new`, two RetroFE skills that existed only on disk and were
+  never tracked.
+
 ### Notes for future work
 - **Config files must not carry a UTF-8 BOM.** A BOM binds to the first key name, so `restorePath`
   parses as `﻿restorePath` and never matches. This applies to every RetroFE config file via
