@@ -7,16 +7,93 @@ Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`
 > **`docs/RetroFE/Git-Operating-Procedure.md`**. It carries the standing decisions (already
 > interviewed — do not re-ask), the five-step intake rule for "let's make X", and the
 > two-track local/remote trap in §3. Decide and state; never make STAiNLESS choose a base.
+>
+> ⛔ **Run its §2a "Definition of done" checklist before calling anything finished.** It is a
+> checklist to execute, not recall. §2b lists the repo conventions it enforces — including the
+> per-branch `CHANGELOG.md` that must be **replaced**, which was missed on 2026-07-28 and had to
+> be caught by STAiNLESS. That is the failure mode this whole document exists to prevent.
 
 **Last updated:** 2026-07-28
-**Branch at handover:** `feature/layout-hot-reload` (cut from
-`feature/data-modernization` @ `ecea8ab`)
+**Branch at handover:** `feature/settings-reboot-restore` (cut from
+`feature/data-modernization` @ `06a32d7`)
 
 ---
 
 ## 1. Where things stand
 
-> ⚡ **Resuming? Slice 1 (layout hot-reload) is DONE and CONFIRMED ON THE RIG.** F5 re-tweens
+> ⚡ **Resuming? `feature/settings-reboot-restore` is DONE and CONFIRMED ON THE RIG.**
+> Both slices shipped, user-confirmed working. Nothing is half-built; the tree is clean and
+> everything is pushed. Pick freely from "Next actions" below.
+
+### This session (2026-07-28, later) — settings-menu reboot restore, built and confirmed
+
+**The ask:** launchers can carry an undocumented `reboot = yes` property, used by CORE's
+on-screen settings menus so a change takes effect. It works, but drops you back at the first
+collection — changing five settings meant navigating back five times.
+
+**Rejected first idea, for a measured reason.** The obvious move was to reuse the F5 hot-reload
+as a `refresh = yes`. Checked what the settings scripts actually do: they comment whole component
+blocks in/out of `layout.xml`, rewrite art `type` attributes (`bezel_night` → `bezel_day`), and
+rename PNGs. Those are **structural and art changes**; the F5 engine transplants **tweens only**.
+`refresh = yes` would have logged success and changed nothing. Built the right thing instead:
+keep the reboot, return the user to their place.
+
+**Shipped** (`feature/settings-reboot-restore`, cut from `data-modernization`):
+
+| Commit | What |
+|---|---|
+| `982e0a7` | Slice A — record the navigation route, persist on reboot |
+| `09045f6` | Slice B — walk the route back on startup |
+| *(this handoff)* | Splash skip + docs |
+
+- New `collectionPath_` records the ordered route; `saveRestoreState()` writes
+  `restorePath` / `restoreOffsets` / `restorePlaylists` into `settings_saved.conf`, consumed
+  one-shot on load.
+- **The route is replayed through the real navigation states, never jumped to** — same reason the
+  page-rebuild approach died: appearance is the accumulated result of the whole descent.
+- **Intro skipped when a route is pending.** Measured on the rig: **13 s → under 2 s**.
+- Gated on `restoreStateOnReboot`, **default no**. CORE is untouched until the key is added.
+
+**Full documentation: `docs/RetroFE/Settings-Menu-Reboot-Restore.md`** — also the first written
+record of `reboot = yes` itself, which was undocumented upstream.
+
+**Two things worth not re-learning:**
+- Config files must not carry a **UTF-8 BOM**. A BOM binds to the first key, so `restorePath`
+  parses as `﻿restorePath` and never matches. Cost real time this session when a PowerShell
+  `Set-Content -Encoding utf8` test fixture silently disabled the feature. Applies to *every*
+  RetroFE config file (`Configuration::parseLine`), not just this one.
+- `settings_saved.conf` is imported **before** `settings.conf` and `Configuration` uses
+  `map::insert`, which **does not overwrite** — anything left in it outranks the user's
+  `settings.conf` permanently. That is why the writer preserves lines it does not own.
+
+**Rig additions** (`K:\RetroFE-Testies`, additive — revert with `test_fixture.ps1 -Action Restore`):
+`launchers.windows\SETTINGS TEST.conf` (runs `cmd /C exit`, `reboot = yes`),
+`collections\Atari 2600\launchers\Adventure (USA).conf` (per-item override so only that one game
+reboots), and `restoreStateOnReboot = yes` in the rig's `settings.conf`.
+
+### Next actions — all independent, pick any
+
+1. **Ship it to CORE.** Add `restoreStateOnReboot = yes` to the cabinet's `settings.conf` and copy
+   the exe. Not done deliberately — confirmed on the rig only so far.
+2. **Zero-code win, still unclaimed:** bezel items 1–3 (`MEGA BEZEL`, `TYPE R BEZELS`,
+   `THIN FRAME`) only touch RetroArch config and never need a reboot at all. Point them at a
+   no-reboot launcher via the per-item override (`Launcher.cpp:48-57`).
+3. **The integration branch** (§7 "Still missing") — deferred until this feature landed, which it
+   now has. Merge order and expected conflict are in `Git-Operating-Procedure.md` §6.
+4. **The layout file watcher** on `feature/layout-hot-reload` (§4, Blueprint §2.2) — still specced
+   and still unstarted.
+
+### Previously (2026-07-28, earlier) — git ownership handed to Claude
+
+STAiNLESS delegated all git/GitHub decisions. Standing decisions, the intake rule, and the
+local/remote divergence trap are recorded in **`docs/RetroFE/Git-Operating-Procedure.md`**.
+Also fixed that session: no branch had upstream tracking configured (all nine now do), and
+`feature/data-modernization` — the branch the live CORE exe was built from — existed **only on
+this machine** with no backup. Everything is now pushed.
+
+### Previously (2026-07-28) — layout hot-reload slice 1 confirmed
+
+> Slice 1 (F5 layout hot-reload) is DONE and CONFIRMED ON THE RIG. F5 re-tweens
 > the live page on every press, at any tier depth. A brittle-guard bug found and fixed this
 > session (below) was the last blocker. **Next up is the file watcher** so edits reload without
 > pressing F5 (Blueprint §2.2, already fully specced) — see "Next single action".
@@ -421,8 +498,9 @@ not 563 KB. Mechanics, if ever needed again: `M:\CORE - TYPE R\.claude\KNOWLEDGE
 
 | Branch | Tip | State |
 |---|---|---|
-| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher is next; **pushed 2026-07-28**, in sync |
-| `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **pushed 2026-07-28** (was local-only with no backup), in sync |
+| `feature/settings-reboot-restore` | see §1 | **current branch**; settings-menu reboot restore **built + confirmed on-rig**; pushed, in sync |
+| `feature/layout-hot-reload` | `232e5b8` | slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher still to do; pushed, in sync |
+| `feature/data-modernization` | `06a32d7` | CORE baseline and default parent for new branches; carries the project docs since `06a32d7`; source of the live CORE exe; pushed, in sync |
 | `feature/vlc-replacement` | `06de5ed` | in sync with origin ✅ |
 | `feature/mixed-collections` | `2acf7b6` | in sync with origin ✅ |
 | `master` | `75bdeea` | **not** a clean upstream mirror — `upstream/master` + 3 local commits. See §7 |
