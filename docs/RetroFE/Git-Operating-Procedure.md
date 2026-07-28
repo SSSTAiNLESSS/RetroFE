@@ -161,11 +161,30 @@ entry.
 Do not silently "fix" this by un-ignoring it — ask STAiNLESS whether the PR guide is still wanted
 before reviving it. Until then, treat the checklist item as "considered and skipped, with reason".
 
-### Known debt — changelogs never replaced
+### Naming variance — `feature/vlc-replacement`
 
-`feature/layout-hot-reload` and `feature/data-modernization` both still carry
-`# Changelog: Feature/Mixed-Collections`, inherited and never replaced. Fix when next working on
-either branch.
+That branch documents itself in **`CHANGELOG_VLC.md`**, not `CHANGELOG.md`. It predates the
+convention. Documented, just differently named — do not "fix" it by renaming; the branch is in
+sync and PR-relevant, and the churn buys nothing.
+
+### Known debt — cleared 2026-07-28
+
+`feature/layout-hot-reload` and `feature/data-modernization` both carried
+`# Changelog: Feature/Mixed-Collections`, inherited and never replaced. **Both now written.**
+Verify with:
+
+```bash
+for b in $(git for-each-ref --format='%(refname:short)' refs/heads); do
+  echo "$b: $(git show "$b:CHANGELOG.md" 2>/dev/null | head -1)"
+done
+```
+
+### ⚠️ Keep this document on the baseline
+
+This file must stay current on **`feature/data-modernization`**, because that is the default
+parent (§2 step 3) and every new branch inherits its copy. An update made only on a feature
+branch leaves the baseline — and therefore the next new branch — with the stale version. That is
+how the definition-of-done checklist would have gone missing again.
 
 ---
 
