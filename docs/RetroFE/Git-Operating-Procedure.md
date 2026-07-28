@@ -84,6 +84,30 @@ One line, then do it. Example of the right tone:
 Then `git switch -c <name> <parent>`. No approval loop for the git part; the *feature* still
 follows the normal blueprint → go → build → prove it rhythm from `CLAUDE.md`.
 
+### Step 6 — Replace CHANGELOG.md before the feature is done
+
+**This repo carries a per-branch `CHANGELOG.md` at the root, and it is the first thing anyone
+sees on GitHub.** It describes *that branch's* modification only — not a running history. A new
+branch inherits its parent's changelog, so leaving it untouched means the branch advertises
+somebody else's feature.
+
+Format (follow `origin/fix/tween-easing-bugs` — the cleanest example):
+
+```markdown
+# Changelog: Feature/Branch-Name
+
+One paragraph: what this branch does and why.
+
+## [feature/branch-name]
+
+### Added / Changed / Fixed
+- **Thing**: what and why.
+```
+
+**Known debt, spotted 2026-07-28:** `feature/layout-hot-reload` and
+`feature/data-modernization` both still carry `# Changelog: Feature/Mixed-Collections`,
+inherited and never replaced. Fix when next working on either.
+
 ---
 
 ## 3. Ground truth of this repo — verified 2026-07-28
