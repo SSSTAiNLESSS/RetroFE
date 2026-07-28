@@ -1,0 +1,737 @@
+# HANDOVER
+
+Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`.
+
+> 🧭 **Claude owns git in this repo — STAiNLESS has explicitly delegated it (2026-07-28).**
+> Before any branch, remote, merge or PR decision, read
+> **`docs/RetroFE/Git-Operating-Procedure.md`**. It carries the standing decisions (already
+> interviewed — do not re-ask), the five-step intake rule for "let's make X", and the
+> two-track local/remote trap in §3. Decide and state; never make STAiNLESS choose a base.
+
+**Last updated:** 2026-07-28
+**Branch at handover:** `feature/layout-hot-reload` (cut from
+`feature/data-modernization` @ `ecea8ab`)
+
+---
+
+## 1. Where things stand
+
+> ⚡ **Resuming? Slice 1 (layout hot-reload) is DONE and CONFIRMED ON THE RIG.** F5 re-tweens
+> the live page on every press, at any tier depth. A brittle-guard bug found and fixed this
+> session (below) was the last blocker. **Next up is the file watcher** so edits reload without
+> pressing F5 (Blueprint §2.2, already fully specced) — see "Next single action".
+
+### This session (2026-07-28) — slice 1 confirmed working; fixed the guard that broke repeat reloads
+
+The on-rig test finally ran, and it exposed a real bug before it passed.
+
+**Symptom the user hit:** F5 appeared to "do nothing." Investigation (logs on
+`K:\RetroFE-Testies`, not guessed) showed F5 *was* firing every press and reaching the reload
+handler — but the reload kept being **vetoed by its own structure guard**, which logged
+`component count changed (56 -> 55)`. The tell was "works once, then never": the guard demanded
+the live page and a freshly-parsed page have an **identical** `LayerComponents` count, and that
+count legitimately drifts.
+
+**Root cause (verified in source):** `PageBuilder` adds components conditionally (`if(c)`,
+`PageBuilder.cpp:788`) — a missing art file or a context-dependent type means a build can yield
+one or two fewer/more components. The live page freezes its count at build time; a fresh parse
+reflects the file *now*. Any drift → the old exact-count check (`Page.cpp`) aborted **every**
+reload from then on. Worse, it then paired tweens by **array index**, which would scramble the
+theme if any component were added/dropped mid-list — so it *couldn't* just be loosened.
+
+**The fix (committed this session):** rewrote `Page::reapplyTweensFrom()` to match components by
+a **stable structural key — concrete type (`typeid`) + layer + authored id** — instead of array
+index. Fresh components are bucketed by key and consumed in document order; each live component
+takes the next fresh component with the same key. Anything unmatched **keeps its existing tweens**
+(never a wrong pairing → never a scramble — strictly safer than the old index pairing). The
+whole-reload rejection is gone; the only remaining refusals are `fresh == null` and
+`moved == 0` (a malformed/half-written file that parsed to near-nothing → keep current layout).
+New helper `Page::componentKey()` (static). Added `<map>/<typeinfo>/<utility>` includes.
+
+Files: `RetroFE/Source/Graphics/Page.cpp`, `RetroFE/Source/Graphics/Page.h`. Clean Release build
+(Win32, no warnings), deployed to `K:\RetroFE-Testies\core\retrofe.exe`. **User confirmed: F5 now
+takes on every press, at depth.**
+
+**Gotchas re-confirmed for the next tester (these cost time this session):**
+- Highlight animations only replay on **scroll** — F5 swaps the tween in, the next scroll plays it.
+- Editing a **commented-out** component (Aeon Nox's fanart block, `layout.xml:21-34`) does nothing.
+- `menuIndex="0"` blocks only animate at the **top** tier; use a no-`menuIndex` block (e.g. the
+  main preview video's `onHighlightEnter`, `layout.xml:1046`) to test at arbitrary depth.
+- **Structural** edits (comment/uncomment a component) still need a **restart** — they just no
+  longer poison later reloads; the changed component is skipped and the rest still reload.
+
+### Previously (2026-07-24) — spike answered, then PIVOTED the whole approach
+
+Two big results this session.
+
+**1. The teardown spike ran (finally) and passed.** Full `SPIKE reload:` sequence logged on all
+7 F5 presses, no crash / hang / deadlock. **`Page` teardown IS safe mid-decode** — libVLC handles
+torn down mid-decode 7× without complaint. That question is now closed. But the screen went black,
+and the diagnosis changed the whole design (below).
+
+**2. Abandoned page-rebuild, pivoted to tween-reapply.** The black screen was NOT a teardown bug.
+Root cause, verified in `Component::update()` (Component.cpp:155-186): **a component only changes
+state when an event fires AND it has a matching animation block at its current `menuIndex`;
+otherwise the request is silently dropped and the component keeps its existing state.** So a live
+page's appearance is the *accumulated* result of the whole navigation history, not a function of
+its final depth. A rebuilt page has none of that history, so everything made visible at a shallower
+tier stays at its authored alpha (0 for most themes = black). This gets **worse the deeper you go**,
+which is fatal to the requirement "must work no matter how many tiers deep."
+
+**The fix: stop tearing the page down.** Re-parse `layout.xml` into a throwaway page, transplant its
+`AnimationEvents` onto the live components via the existing `setTweens()`, destroy the throwaway.
+Nothing is destroyed on the live page, so depth / collections / scroll / visibility all survive
+untouched, at any tier. Covers animation edits (43,891 `animate` nodes vs 2,133 `image` in the
+survey — animation is the case that matters); adding/removing a component still needs a restart and
+is refused with a logged reason rather than scrambling the theme.
+
+### Slice 1 — BUILT this session, awaiting on-rig confirmation
+
+| File | Change |
+|---|---|
+| `Component.h` | `getTweens()` accessor (counterpart to existing `setTweens()`) |
+| `Page.cpp` / `Page.h` | `reapplyTweensFrom(Page *fresh, string &reason)` — structure-guarded tween swap |
+| `RetroFE.cpp` | `RETROFE_RELOAD_LAYOUT_REQUEST` rewritten: build throwaway → reapply → destroy → re-fire entry event for current tier; on failure log + stay on current layout |
+
+Three ownership hazards checked in source, not assumed:
+- `~Component` never frees `AnimationEvents` → transplant can't double-free.
+- `Page::deInitialize()` doesn't touch the shared font cache → destroying throwaway won't break live text.
+- `createVideo` is only reached via `allocateGraphicsMemory`, which the throwaway never gets → live video undisturbed.
+
+**Deliberate limit:** menu *per-item* scroll-point animations are NOT transplanted. `~ScrollingList`
+deletes the `ViewInfo`s in `scrollPoints_` and clones share that vector, so moving them would dangle.
+Everything else (all `<onMenuEnter>`/`<onIdle>`/`<onHighlightEnter>` on images, videos, text, menu
+containers) reloads.
+
+Clean Release build (Win32, no warnings). **Not committed by the /handoff — see §10 for the
+git-history note on the old spike commit `ad7d78e`.** Working tree carries the 4 edited source
+files + `Scripts/test_fixture.ps1`.
+
+### Test rig built this session — `K:\RetroFE-Testies`
+
+Aeon Nox theme (1121 lines, ~55 components, 648 `animate` nodes) — far saner than TITAN's 9812.
+Fixture's `core\` originally held the 2022 GStreamer-era exe + 278 DLLs; replaced the runtime with
+the 12-DLL libVLC set from `M:\CORE - TYPE R\core\` (+ 734 plugin files) and deployed our build.
+`fullscreen = no`, so it runs windowed beside an editor.
+
+**Snapshot/restore tooling:** `Scripts/test_fixture.ps1` (-Action Snapshot|Status|Restore -Force).
+Baseline at `K:\RetroFE-Testies.baseline` (1718 files, 693 MiB) is the *working rig*. Excludes and
+protects `emulators\` (1.9 GB), `core 1.4\`, `RetroFE\`. **Caught+fixed a real bug during build:**
+source-only `/XD` paths meant a Restore would have purged 1.9 GB of emulators — now excluded on both
+sides and proven on a throwaway tree before ever pointing at the real fixture.
+
+### Previously (2026-07-23, third block) — git strategy audited, no engine work
+
+No engine code touched.
+
+Audited the repo against the "one fork, one branch per mod, one integrated build" model.
+**Verdict: that is already how this repo operates**, with the two gaps §7 records — `master`
+isn't a clean upstream mirror, and no integration branch exists. Nothing needed restructuring.
+
+Then attempted to purge the committed junk binaries via `git filter-repo`. **It was reverted
+from a bundle; the repo is byte-identical to where it started and nothing was pushed.** The
+attempt is written up in §7 as a settled finding — short version: the saving is 7.6%, not the
+60% an uncompressed-size estimate suggested, and filter-repo severs `upstream/master`
+ancestry. §7 had *already* said not to do this; what was missing was the evidence, now added.
+
+Also corrected: the "~1.2 GB repo" figure in §2 and §7 was wrong — measured **~360 MiB**.
+`CLAUDE.md`'s stale "Multi-Branch Development" section was rewritten to match §7, but note
+**`CLAUDE.md` is gitignored (`.gitignore:27`)** — it is local to this machine and carries no
+commit, so §7 here is the only durable record.
+
+### Earlier this session (2026-07-23, second half) — open items closed, spike built
+
+Three commits on `feature/layout-hot-reload`, working tree clean:
+
+| Commit | What |
+|---|---|
+| `bd45a7c` | Settled the untracked-file shape (§2); refreshed stale `CLAUDE.md` claims |
+| `ad7d78e` | **SPIKE** — F5 forces a page teardown + rebuild (details below, revert when done) |
+| `4ed81da` | Handover refresh |
+
+Also done, all in gitignored files so they carry no commit: **LM Studio delegation replaced
+with Ollama**, and the root cause found for why delegation had never worked in any session —
+both MCP configs pointed at a `P:` drive that does not exist on this machine (§6).
+
+### Earlier still (2026-07-23, first half) — blueprint
+
+Cut **`feature/layout-hot-reload`** off `feature/data-modernization` (`ecea8ab`) and
+produced the blueprint for slice 1.
+
+Surveyed all **228 `layout.xml` files** across the ten reference themes (Theta, Refried,
+ReCORE, Ergo Proxy, 1MiLLiON, Banner, Back2Basics, Theme_Pack ×7, Aeon Nox). Findings are
+written up in **`docs/RetroFE/Layout-Hot-Reload-Blueprint.md`** — read that before resuming;
+the headlines are in §4 below.
+
+TITAN is **out of scope** for the theme-editor work (user's call this session). It turned
+out not to matter: the constraint TITAN was thought to impose is present in ordinary
+community themes anyway, and much more strongly (§4).
+
+### Previously (prior session) — VLC fixes, still current
+
+Ported the two VLC fixes from `feature/data-modernization` back onto the VLC branch and
+pushed them. `feature/vlc-replacement` went `2e1ddb4` → `06de5ed`, local and origin in sync:
+
+| Commit | What |
+|---|---|
+| `31bbc65` | Fix CMake to find VLC SDK in `lib/msvc` (cherry-pick of `2acf7b6`) |
+| `641daf7` | Fix VLC videos not looping — play once then freeze (cherry-pick of `76e344d`) |
+| `06de5ed` | Bump `cmake_minimum_required` 2.8 → 3.5 |
+
+Both cherry-picks applied without conflict. Verified before pushing: full clean Release
+build succeeded, and CMake resolved libVLC from the `lib/msvc` path the first commit adds.
+
+Deliberately **not** carried across: the unrelated mixed-collections work sitting between
+those commits on `data-modernization` (`1d4dc9f`, `7866e0e`, `4279a70`, `a81beb4`, `d6d7bdd`,
+merge `c4cf1b2`) and the roadmap/gitignore commits (`92baa40`, `2a90884`).
+
+### Teardown spike — RAN 2026-07-24, PASSED, then superseded
+
+Commit `ad7d78e` built an F5-forces-page-rebuild spike (the `RETROFE_RELOAD_LAYOUT_REQUEST`
+enum + `SDLK_F5` handler it added are now **reused** by slice 1). It ran at the cabinet 2026-07-24:
+teardown was clean 7/7, **`Page` teardown is safe mid-decode — that question is closed.** But the
+diagnosis of the black screen it produced killed the rebuild approach and drove the pivot (§1).
+The spike's rebuild *body* has been fully replaced in the working tree; the enum + F5 trigger
+survive as the hot-reload plumbing.
+
+`retrofe_spike.exe` on `M:\CORE - TYPE R\core\` from that run can be deleted (live `retrofe.exe`
+was never touched). Testing has moved to the isolated `K:\RetroFE-Testies` rig — CORE is no longer
+the test target.
+
+### Next single action
+
+**Build the file watcher** (Blueprint §2.2, already fully specced — don't re-derive it). The
+"does tween-reapply work at arbitrary depth?" question is now answered YES on the rig, so this is
+no longer gated on a manual test:
+
+- Poll `layout.xml`'s mtime+size **@250 ms**; the watcher must track the *set* of candidate paths
+  (aspect-specific `layout <W>x<H>.xml` and the plain `layout.xml`), including ones not yet existing.
+- **Debounce** by requiring the stat stable across **2 polls** (editors write partial files).
+- On a stable change, fire the existing `RETROFE_RELOAD_LAYOUT_REQUEST` — the same path F5 uses,
+  which now goes through the fixed `reapplyTweensFrom()`. F5 stays as the manual override.
+- **Gate on `layoutHotReload`** (default false) via `config_.getProperty(key, bool&)`
+  (`Configuration.h:36`), so shipped CORE builds are untouched.
+
+The reload engine underneath it is done and proven; this slice is purely the trigger. Test it the
+same way (edit a value, watch it reload with no keypress) on `K:\RetroFE-Testies`.
+
+**Genuinely independent alternatives** if you'd rather not touch the watcher: the integration-branch
+gap (§7, "Still missing") or importing the code-tuned Qwen GGUF into Ollama (§6).
+
+---
+
+## 2. Open items — ALL CLOSED 2026-07-23 (`bd45a7c`)
+
+Kept only as a record of what was decided and why. Nothing here needs action.
+
+1. ~~**The GitHub repo was renamed and `origin` is stale.**~~ **Done 2026-07-23.** `origin`
+   re-pointed to `RetroFE-CORE`, and `upstream` added. See §7 for the full remote topology
+   and the blocking finding it uncovered.
+
+2. ~~**Untracked files on `feature/data-modernization`**~~ **Mostly resolved 2026-07-23.**
+   `RustCore/` + both metadata headers are now committed (`ecea8ab`); `RustCore/target/`
+   is gitignored (`cb9616f`); `=2.31.0` and `nul` deleted — both were shell-redirect debris,
+   **not** a build number. Detail in §8.
+
+   **Partially resolved 2026-07-23 (this session).** A shape was chosen and applied:
+   *engine design docs are tracked; reference material and agent tooling are not.* So
+   `docs/RetroFE/Layout-Hot-Reload-Blueprint.md` is committed while the rest of `docs/`
+   is not. `docs/` is therefore **partially tracked** — deliberate, not an oversight.
+
+   **Fully resolved 2026-07-23 (`bd45a7c`).** The shape is now written into `.gitignore`
+   itself, with a comment block naming which files sit on which side of the line, so it
+   stops being re-litigated every session:
+   - **Tracked:** `docs/RetroFE/Layout-Hot-Reload-Blueprint.md` and
+     `docs/RetroFE/RetroFE Modernization and Performance.md` (engine design docs).
+   - **Ignored:** upstream manuals, `docs/RetroFE_Wiki/`, PDFs, `docs/*.md` (AI workflow
+     guides), `.mcp.json`, `Scripts/mcp-servers/` — reference material and agent tooling.
+
+   Working tree is now **clean**. `docs/` remains deliberately partially tracked.
+   **Still do not `git add -A`** — the ignore rules now cover the known traps, but the repo
+   carries ~360 MiB of committed binaries (§7) and `RustCore/target/` reaches 2.2 GB.
+
+3. ~~**`CLAUDE.md` is stale on video backend.**~~ **Done 2026-07-23.** The mission bullet now
+   reads as ✅ shipped (GStreamer → libVLC) with libmpv explicitly filed as *Phase 4, future*.
+   **Current State** also now notes that `RustCore/` is a scaffold **not wired into CMake**,
+   which was the other thing that read as further along than it is.
+   (`CLAUDE.md` is gitignored, so that edit is local-only by design.)
+
+4. ~~**LM Studio delegation.**~~ **Replaced with Ollama 2026-07-23.** See §6.
+
+---
+
+## 3. Build — verified working commands
+
+Toolchain actually present: **CMake 4.3.2**, **Visual Studio 18 2026**, **MSVC 19.50**,
+target **Win32 (32-bit)**. VLC SDK vendored at `tools/vlc-sdk` (gitignored, `lib/msvc` layout).
+
+```powershell
+# from repo root
+cd RetroFE\Build
+cmake -A Win32 -D LIBVLC_ROOT="J:\Documents\github\RetroFE\tools\vlc-sdk" -S ..\Source
+cmake --build . --config Release --clean-first
+# -> RetroFE\Build\Release\retrofe.exe
+```
+
+**Gotcha:** `Scripts\build_and_store.ps1` uses `Read-Host` for branch selection, so it
+**cannot be run from an agent shell** (stdin is the null device). Use the raw cmake commands
+above, or run the script yourself in a real terminal. The script also passes
+`-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; after commit `06de5ed` that flag is no longer needed
+on the VLC branch (configure was tested without it).
+
+### How this repo reaches the CORE Type R build
+
+Confirmed by hash, not assumed:
+
+```
+M:\CORE - TYPE R\core\retrofe.exe
+  SHA256 51DF46285DC24C0B39CEADB46530F39CB697DE0474ADF6B612FFF0B46A8A2E21
+  == Builds\2026-07-22_08-33-30_feature-data-modernization\retrofe.exe
+```
+
+So the live CORE Type R arcade build is already running this fork's binary, built from
+`feature/data-modernization`. Pipeline is: build here → copy `retrofe.exe` into `core\`.
+Any engine change ships to CORE the moment that copy happens — and must then be registered
+for the next free release via the `update-package` skill in the CORE repo.
+
+The `M:\CORE - TYPE R` git repo is scoped to `.claude` tooling only, **not** the build
+itself. Engine code belongs here; only the built exe (plus any new `settings.conf` key)
+crosses over.
+
+---
+
+## 4. Layout hot-reload → visual theme editor
+
+> **Full blueprint: `docs/RetroFE/Layout-Hot-Reload-Blueprint.md`** (written 2026-07-23,
+> tracked in git). This section is the summary; that file is the detail and the test plan.
+
+### Why
+
+Prompted by LaunchBox's *COMMUNITY Theme Creator* — a WPF app that visually edits BigBox
+themes. It's tractable for them because BigBox themes **are** WPF/XAML and the editor **is**
+a WPF app, so its canvas is literally the renderer BigBox uses. WYSIWYG comes nearly free.
+
+RetroFE has no such luxury: `layout.xml` is a bespoke schema rendered by RetroFE's own
+C++/SDL2 renderer. An external WYSIWYG editor would have to **reimplement that renderer**,
+and every divergence becomes a lie on screen. **Do not take that path.**
+
+### Chosen direction
+
+Make RetroFE itself the editing surface, in three slices:
+
+1. **Hot-reload `layout.xml`** ← start here, highest value per unit of work
+2. **`--edit` overlay** — bounding boxes, component ids/layers, click-select, drag/resize,
+   nudge, property HUD. Pixel-perfect by construction because it *is* the renderer.
+3. *(optional)* External panel app for ergonomics (property inspector, asset browser, undo,
+   tween timeline) that writes `layout.xml` while RetroFE hot-reloads as ground truth.
+   Dual-screen setup already makes this natural. The panel must never pretend to render.
+
+### Slice 1 scope
+
+Watch `layout.xml` → on change call `PageBuilder::buildPage()` → swap `currentPage_` →
+restore current collection and selected index so you don't lose your place.
+Gate behind a `settings.conf` key, default off, so shipped CORE builds are untouched.
+
+### ⚠️ The decisive finding — measured 2026-07-23, do not re-derive
+
+**141 of 228 real theme `layout.xml` files (62%) are rejected by a strict XML parser, and
+RetroFE does not care.** Mechanism verified in source, not inferred:
+`PageBuilder.cpp:137` calls `doc.parse<0>()`, so `parse_validate_closing_tags` (`0x200`) is
+unset and `rapidxml.hpp:2193` **skips closing-tag names without comparing them**. Hence
+`<text ...>` closed by `</reloadableText>` parses fine as a `text` node —
+**1558 such mismatches across 80 files**, e.g. `Theta/collections/2 SONY/layout/layout.xml:88`.
+
+**Consequence:** a theme editor must parse using RetroFE's own rapidxml `parse<0>` semantics.
+A strict XML library would refuse 62% of existing themes, and a parse-and-serialize round-trip
+would silently rewrite documents. This independently reproduces the TITAN conclusion from
+ordinary community themes, so it is an **engine-wide** property — the strongest argument for
+*make RetroFE itself the editing surface*.
+
+**Related, and an early feature win:** attribute *names* are case-sensitive
+(`rapidxml.hpp:1025`, `case_sensitive = true`), so mis-cased ones are silently dead —
+`MenuIndex` ×36, `Height`/`Width` ×173, `maxheight` ×29, plus typo'd elements
+`Reloadableimage` ×21, `onMenutEnter`/`onMenutExit` ×24. Attribute *values* differ:
+`Tween::getTweenType` lowercases and falls back to `linear` for anything unknown
+(`Tween.cpp:77-115`), so `easeInquadratic` ×198 works but a typo'd algorithm silently
+becomes linear. An editor that surfaces "this is being ignored" fixes bugs shipping in
+public themes today.
+
+**Themes are mostly animation, not layout:** 43 891 `animate` nodes vs 2133 `image` nodes.
+A property inspector for nudging X/Y misses what authors actually do — the slice-2 editor
+should lead with event/tween editing. 17 real event names; 31 real elements (+4 typos);
+only 7 distinct `algorithm` values in practice.
+
+**One page is built from many files:** `PageBuilder.cpp:100-130` loops monitors and prefers
+an aspect-specific name (`<page> <W>x<H> - <N>.xml`) over the plain one. The watcher must
+track a *set* of candidate paths, including ones that don't exist yet.
+
+### Other findings already established — do not re-derive
+
+- **No file watcher or reload path exists today.** `PageBuilder::buildPage()` is called from
+  `RetroFE.cpp` at lines **668, 1260, 1809, 1827** only — re-confirmed 2026-07-23. Current
+  feedback loop is *edit → reboot RetroFE → navigate back to the screen*.
+- **Reference themes** live under `J:\Documents\games\FRONTENDS\CORE\Themes\` (plus
+  `Aeon Nox` under `...\FRONTENDS\RetroFE\RetroFE\layouts\`). Real files are **13–91 KB** —
+  ordinary, nothing like the 676 KB TITAN outlier. Wiki reference:
+  `docs/RetroFE_Wiki/RetroFE_Documentation.md`.
+- **`Graphics/PageBuilder.cpp`** (58 KB) is the sole `layout.xml` parser — **44 attributes**.
+  Component element names seen in the parser include `reloadableImage`, `reloadableVideo`,
+  `reloadableText`, `reloadableScrollingText`, `reloadableAudio`, alongside classes for
+  `Image`, `Text`, `Container`, `ScrollingList`, `Video`.
+- **`Graphics/ViewInfo.h`** holds the live visual state, ~35 properties: X/Y, XOrigin/YOrigin,
+  XOffset/YOffset, Width/Height + Min/Max, ImageWidth/Height, FontSize, Angle, Alpha, Layer,
+  Background RGBA, Reflection (+distance/scale/alpha), Container X/Y/W/H, Monitor, Volume.
+- **`Graphics/Animate/TweenTypes.h`** — 22 easing algorithms × 21 tweenable properties
+  (+ `TWEEN_PROPERTY_NOP`), driven by `onGameEnter`/`onMenuEnter`-style events.
+
+### Design questions — now answered in the blueprint (§2.2)
+
+Resolved 2026-07-23: **poll mtime+size at 250 ms** (no new dependency, one implementation
+across platforms); **debounce by requiring the stat stable across 2 polls** (editors write
+partial files); **build the new page fully and swap only on success** (malformed XML must
+never blank the screen or kill the process); **gate on `layoutHotReload`, default false**,
+read via the existing `config_.getProperty(key, bool&)` overload (`Configuration.h:36`);
+**capture/restore collection + selected index + menu depth + playlist**, clamping rather
+than failing.
+
+Still genuinely open: **teardown safety** on page swap (in-flight libVLC handles, font cache,
+SDL textures) — which is exactly why the next action is a spike, not the watcher. Keep the
+design loosely coupled to the video backend, since libmpv is Phase 4.
+
+### TITAN — descoped 2026-07-23
+
+Explicitly **out of scope** for the theme editor (user's call). It no longer drives the design:
+the comment-marker fragility it was thought to impose uniquely is a *weaker* version of the
+engine-wide parser finding above, which applies to every theme regardless. The conclusion
+("surgical, comment-preserving text edits; never parse-and-serialize") survives on its own
+merits and is now justified by ordinary community themes.
+
+Two stale facts corrected while checking: the file is at
+`M:\CORE - TYPE R\layouts\TITAN\layout.xml` (**not** `core\layouts\`), and it is **676 KB**,
+not 563 KB. Mechanics, if ever needed again: `M:\CORE - TYPE R\.claude\KNOWLEDGE.md` §2–§3.
+
+---
+
+## 5. Branch map
+
+> **Corrected 2026-07-28.** Until this session *no local branch had upstream tracking set*, so
+> the "in sync" claims below could never have been verified and two of them were wrong. Tracking
+> is now configured on all nine branches and the table reflects measured state.
+> Full detail: `docs/RetroFE/Git-Operating-Procedure.md` §3.
+
+| Branch | Tip | State |
+|---|---|---|
+| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher is next; **pushed 2026-07-28**, in sync |
+| `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **pushed 2026-07-28** (was local-only with no backup), in sync |
+| `feature/vlc-replacement` | `06de5ed` | in sync with origin ✅ |
+| `feature/mixed-collections` | `2acf7b6` | in sync with origin ✅ |
+| `master` | `75bdeea` | **not** a clean upstream mirror — `upstream/master` + 3 local commits. See §7 |
+
+⚠️ **`feature/playlist-menu-wheel`, `feature/reverse-launcher-mapping`,
+`feature/sort-and-filter`, `fix/tween-easing-bugs` are DIVERGED, not merely "ahead".**
+Each is ahead 5–6 / behind 2–3. The `origin` copies are **clean cherry-picks off
+`upstream/master` with no junk binaries — already PR-ready**; the local copies carry the
+`d11032c` junk history. Same content, different bases. **Do not `git pull` them** — there is
+nothing to fetch and a merge would tangle two histories. Procedure doc §3 has the table and the
+recommended `pr/*` rename (which needs STAiNLESS's OK first).
+
+~~Suggested next branch~~ **Done 2026-07-23:** `feature/layout-hot-reload` was cut from
+`feature/data-modernization` (not `master`) — otherwise the editor build loses the libVLC work
+and can't be tested against the real CORE build.
+
+---
+
+## 6. Working agreement reminders
+
+- **Delegation now runs on Ollama, not LM Studio (changed 2026-07-23).** `CLAUDE.md` mandates
+  delegating bulk file reading to the local LLM. Follow it; if Ollama isn't running
+  (`ollama serve`), say so plainly rather than silently burning API tokens.
+
+  **Root cause of why delegation never once worked:** both `.mcp.json` and the duplicate
+  `.claude/mcp.json` pointed at `P:/Documents/github/RetroFE/...` — **a drive that does not
+  exist here** (repo is on `J:`). The server could never start, so the tools never appeared.
+  Fixed. The duplicate `.claude/mcp.json` was deleted; `.mcp.json` at the repo root is the
+  single live config.
+
+  What changed, concretely:
+  | | |
+  |---|---|
+  | Server | `Scripts/mcp-servers/ollama-worker.py` (renamed from `lm-studio-worker.py`) |
+  | Registered as | `ollama-worker` in `.mcp.json` — tools are `mcp__ollama-worker__*` |
+  | Endpoint | `http://localhost:11434/v1/chat/completions` |
+  | Model | `Qwen3.6-35B-A3B-uncensored-heretic-Q5_K_M.gguf:latest` |
+
+  Ollama serves the **same OpenAI-compatible API** as LM Studio, so only the endpoint and
+  model tag changed — the client code is otherwise untouched. Knobs are in one block at the
+  top of the script, each with an env override (`OLLAMA_ENDPOINT`, `OLLAMA_MODEL`).
+
+  **Verified live, not assumed:** a real `curl` against that endpoint+model returned `PONG`.
+
+  Model choice: the Qwen3.6-35B-A3B is MoE — 35B total, ~3B active per token, so it is fast
+  on the 32 GB RTX 5090 and carries a **262k context window**, which is what makes whole-file
+  analysis practical. Other tags available: `Ornith-1.0-35B`, `gemma-4-31B`, `oba-roblox-q4`
+  (2.8 GB, for cheap/simple calls). `J:\Documents\Models\Qwen3.6-40B-Deck-Opus-NEO-CODE-*.gguf`
+  (24 GB) is code-tuned and still **not** imported into Ollama — worth doing for C++ generation.
+
+  Also updated: `.claude/commands/research.md`, `.claude/settings.local.json` permissions, and
+  `Scripts/mcp-servers/README.md`. Stale and superseded:
+  `docs/Claude Code Operational Blueprint - LM Studio Delegation.md` — left on disk
+  (untracked, gitignored) rather than deleted, since it was not mine to throw away.
+- **Delegation judgement call, applied this session:** the layout survey was done with a
+  deterministic Python script, not an LLM. Extracting which elements/attributes themes use is
+  parsing, not reasoning — a script gives an exact, checkable answer where a model could
+  hallucinate schema. Delegate fuzzy work; script the countable work. Scripts used:
+  `layout_inventory.py` / `rapid_inventory.py` (scratchpad, not kept — trivial to rewrite from
+  the blueprint).
+- One small verified slice at a time. Blueprint → explicit go → build → prove it → stop.
+- Verify facts against live files. Everything stated in this document was checked against the
+  repo on 2026-07-23; re-confirm anything load-bearing before relying on it.
+
+---
+
+## 7. Fork topology & the PR-blocking commit
+
+Established 2026-07-23. All figures measured, not assumed.
+
+### Remotes — now configured
+
+```
+origin    https://github.com/SSSTAiNLESSS/RetroFE-CORE.git   (fetch + push)
+upstream  https://github.com/phulshof/RetroFE.git            (fetch only)
+```
+
+`upstream`'s **push URL is deliberately set to `DISABLED`** so a stray `git push upstream`
+fails loudly instead of attempting to write to someone else's repo. Undo with
+`git remote set-url --push upstream https://github.com/phulshof/RetroFE.git` if ever needed.
+
+Upstream identity confirmed from `README.md:55`, not guessed. `upstream/master` is at
+`9f9230d` and has **not moved since the fork** — upstream also carries `Release-0.10.30`
+and `Release-0.10.31` branches.
+
+### Divergence
+
+```
+master  vs  upstream/master:   0 behind,  3 ahead
+merge-base == 9f9230d == upstream/master tip
+```
+
+Zero behind is the good case: no upstream changes to absorb, no rebase pressure, and
+`master` is a strict superset of upstream.
+
+### ⚠️ The blocking finding
+
+The 3 commits sitting between `upstream/master` and `master`:
+
+| Commit | Contents | Verdict |
+|---|---|---|
+| `d11032c` | "added 1.4 core files" — **279 files**, binary `.dll`/`.exe`, incl. a literal `retrofe - Copy.exe` | **junk — must not reach a PR** |
+| `a7fb3da` | Revert `playbin3`→`playbin` for GStreamer 1.4 compat, 1 line in `GStreamerVideo.cpp` | genuine fix, **PR-worthy** |
+| `75bdeea` | `.gitignore`: adds `tools/` | trivial, harmless |
+
+**Every feature branch descends from `75bdeea`, so every one of them contains `d11032c`.**
+Verified by `git merge-base --is-ancestor` against all four small branches. A PR opened from
+any of them today would show its own 2–3 commits *plus 279 committed binaries*. That alone
+would get a PR closed on sight.
+
+Repo git objects measure **~360 MiB** (`size-pack`, verified 2026-07-23). An earlier
+"~1.2 GB" figure in this document was wrong and has been corrected.
+
+### ⛔ Do not try to purge the binaries by rewriting history — tried and reverted
+
+Attempted 2026-07-23 with `git filter-repo --path "Package/Environment/Windows/core 1.4/"
+--invert-paths`. **Reverted from a bundle.** Two findings, both measured:
+
+1. **The saving is trivial.** The junk DLLs are ~231 MiB *uncompressed*, but git already
+   delta-compresses them to **~29 MiB in the pack — 7.6% of the repo**. Counting unique blob
+   SHAs (274 of 278 unique) does *not* predict pack cost; delta compression is not SHA dedup.
+   The bulk of the repo is upstream's own `Package/Environment/Windows/core/` GStreamer DLLs
+   (`avcodec-59.dll` alone is 76 MiB), which cannot go without diverging from upstream.
+2. **It severs upstream ancestry.** filter-repo rewrote 4 `upstream/master` commits that
+   contain no `core 1.4` files (two are merge commits, which it restructures by default).
+   Afterwards `git merge-base --is-ancestor upstream/master master` failed — every branch's
+   PR would show its full history as new commits. Exactly what §7's whole strategy prevents.
+
+The junk is already absent from every working tree; it is history-only weight. **Leave it.**
+Use the cherry-pick recipe below when a PR is actually wanted.
+
+A plain `git gc --prune=now --aggressive` is safe and reclaimed ~17 MiB with no downside.
+
+### The fix, when PRs are actually wanted
+
+> **Update 2026-07-28: this has ALREADY been done for four branches.** `origin`'s copies of
+> `fix/tween-easing-bugs`, `feature/playlist-menu-wheel`, `feature/reverse-launcher-mapping`
+> and `feature/sort-and-filter` are clean cherry-picks 2–3 commits off `upstream/master`,
+> carrying no junk — verified by `merge-base --is-ancestor`. They were pushed under the plain
+> branch names instead of `pr/*`, which is why those four now show as diverged from their
+> local build-track counterparts (§5). If a PR is wanted for any of them, it is already on
+> GitHub — just open it. See `docs/RetroFE/Git-Operating-Procedure.md` §3.
+
+Do **not** rewrite history on branches already pushed to `origin`. Instead cut clean PR
+branches straight off `upstream/master` and cherry-pick:
+
+```bash
+git fetch upstream
+git switch -c pr/tween-easing-bugs upstream/master
+git cherry-pick <the 2 real commits from fix/tween-easing-bugs>
+git push -u origin pr/tween-easing-bugs
+```
+
+PR base `phulshof/RetroFE:master` ← compare `SSSTAiNLESSS/RetroFE-CORE:pr/tween-easing-bugs`.
+The binary blob never enters the picture. `a7fb3da` deserves its own PR by the same route —
+note it's a **GStreamer** fix and upstream still runs GStreamer, so it remains relevant to
+them even though CORE has moved to libVLC.
+
+### Branch shape — already correct
+
+No restructuring needed. Every branch forks cleanly off `75bdeea`:
+
+| Branch | Commits ahead of base | PR-shaped? |
+|---|---|---|
+| `fix/tween-easing-bugs` | 2 | yes |
+| `feature/playlist-menu-wheel` | 2 | yes |
+| `feature/reverse-launcher-mapping` | 2 | yes |
+| `feature/sort-and-filter` | 3 | yes |
+| `feature/mixed-collections` | 17 | large |
+| `feature/data-modernization` | 20 | large; **descends from `mixed-collections`** |
+
+That last relationship is verified: `mixed-collections` is a direct ancestor of
+`data-modernization`, so it would have to land upstream first, or a PR carries both.
+
+### Still missing: an integration branch
+
+> **Decided 2026-07-28: STAiNLESS wants one, deferred until the settings-reboot-restore
+> feature lands** — merging five branches and building a new feature at once would make any
+> failure impossible to attribute. Merge order and the expected conflict are recorded in
+> `docs/RetroFE/Git-Operating-Procedure.md` §6.
+
+
+Nothing currently combines tween fixes + playlist wheel + launcher mapping + sort/filter into
+one shippable build. `feature/data-modernization` is the biggest branch but does **not**
+contain the other four. If CORE is to ship as one binary with all of them, an integration
+branch (`core-personal` or similar) is the gap to fill — and it's where conflicts between
+`sort-and-filter` and `data-modernization` will surface, since both touch collection/metadata
+code. Not attempted yet; no merge has been trialled.
+
+### Licensing note for distribution
+
+RetroFE is **GPLv3**. Submitting PRs is entirely voluntary. Distributing modified *binaries*
+does require offering corresponding source — tag each released build
+(`git tag -a core-v1.0`) so the public source matches the shipped exe exactly. Third-party
+assets bundled with CORE (themes, artwork, fonts, DLLs) carry their own licences and are
+**not** covered by RetroFE's GPL.
+
+---
+
+## 8. RustCore — what it actually is
+
+Settled 2026-07-23, after it was briefly misremembered as part of the VLC fix. **It is not.**
+The VLC work is separate and already shipped (§1, commits `31bbc65` / `641daf7` on
+`feature/vlc-replacement`). `RustCore/` is **Phase 1/3 modernization** — Arrow, Parquet,
+DuckDB, cxx. No video code in it.
+
+```toml
+name = "retrofe-core"          crate-type = ["staticlib"]
+arrow = "53.3"   parquet = "53.3"   duckdb = "1.1.3" (bundled)
+quick-xml = "0.36"   cxx = "1.0"    tokio (optional, Phase 3)
+```
+
+### Now committed — `ecea8ab` on `feature/data-modernization`
+
+| File | Lines |
+|---|---|
+| `RustCore/src/bridge.rs` | 34 |
+| `RustCore/src/lib.rs` | 18 |
+| `RustCore/build.rs` | 12 |
+| `RustCore/Cargo.toml` | 39 |
+| `RustCore/Cargo.lock` | 2347 |
+| `Database/IMetadataBackend.h` | 112 |
+| `Database/SQLiteMetadataBackend.h` | 64 |
+
+Verified never committed on any branch before this (`git log --all -- '*RustCore*'` was
+empty), so nothing was duplicated.
+
+**It is an early scaffold, not working code.** `CMakeLists.txt` contains no reference to
+`RustCore`, `retrofe-core`, or `cargo` — the crate does not participate in the C++ build and
+changes no runtime behaviour. Wiring it into CMake is unstarted work.
+
+### The 2.2 GB trap — closed
+
+`RustCore/target/` reaches **2.2 GB** (DuckDB builds from source under the `bundled` feature)
+and was untracked *but not gitignored*. One `git add -A` would have put it in history
+permanently, on top of the 279 binaries `d11032c` already added (§7). Now ignored via
+`cb9616f`. **Do not remove that rule.**
+
+`.gitignore` also now carries `=*`, which catches files created by unquoted shell redirects —
+the origin of `=2.31.0` (it held captured `pip install requests>=2.31.0` output, from a
+`c:\users\b3nj1\` Python install, not this repo).
+
+---
+
+## 9. Layout hot-reload — how to test it
+
+**CONFIRMED PASSED 2026-07-28** — F5 re-tweens on every press at depth (after the guard fix in §1).
+Kept below as the re-test procedure for the watcher slice. Runs windowed (`fullscreen = no`) so you
+can keep an editor beside it. Note the deployed rig `layout.xml` currently has the fanart block
+re-commented and the main preview video's `onHighlightEnter` (line 1046) left at `duration="3"`
+from testing — harmless, revert if you want the stock theme back.
+
+Reset the rig between runs any time: `.\Scripts\test_fixture.ps1 -Action Restore -Force`
+
+### Test 1 — does a tween edit take?
+
+1. Run `K:\RetroFE-Testies\core\retrofe.exe`.
+2. Open `K:\RetroFE-Testies\layouts\Aeon Nox\layout.xml`, **line 30**.
+3. Change `duration=".15"` to `duration="3"`. Save.
+4. Click back on RetroFE, press **F5**.
+5. Scroll the menu — the highlight fade should now be conspicuously slow (3 s).
+
+### Test 2 — tier independence (the whole point)
+
+Navigate 2–3 tiers deep, then press **F5**. You should stay exactly where you are, still visible,
+video still playing. This is the case the old page-rebuild approach failed.
+
+### Test 3 — the safety guard
+
+Add a whole new `<image>` element to the layout, save, F5. It should **refuse**: screen unchanged,
+`log.txt` says `Layout reload skipped, keeping current layout: component count changed (N -> N+1)`.
+
+### What success looks like
+
+`K:\RetroFE-Testies\log.txt` shows, per F5:
+
+```
+Layout reload: 57 components re-tweened at menu depth 3
+```
+
+Screen updates in place — same collection, same tier, same scroll spot, video still playing.
+
+### What failure looks like, and what each means
+
+| Symptom | Reading |
+|---|---|
+| Edit doesn't take, no `Layout reload:` line at all | F5 not reaching the state; check the `SDLK_F5` handler fired |
+| `Layout reload:` logs but screen unchanged | tweens swapped but entry event didn't re-fire — check the `enterMenu()`/`start()` branch |
+| Black screen after F5 | the guard let a structurally-different or malformed layout through; should be impossible — capture the layout diff |
+| Crash on F5 | an ownership assumption in §1 was wrong — capture the last log line |
+| Works at depth 1, breaks deep | tier independence failed — this is the exact thing the pivot was meant to fix |
+
+### Report back
+
+Paste the `Layout reload:` line(s) and say what you saw on screen. Then §1 "Next single action"
+decides the shape of the watcher slice.
+
+---
+
+## 10. Git history note — the old spike commit `ad7d78e`
+
+`ad7d78e` ("SPIKE: forced page rebuild on F5") is still in this branch's history. Its *approach*
+(rebuild the page) was abandoned this session, but its **scaffolding is reused**: the
+`RETROFE_RELOAD_LAYOUT_REQUEST` enum and the `SDLK_F5` trigger it added are the plumbing slice 1
+sits on. So **do not `git revert ad7d78e`** — that would rip out the enum and F5 handler the current
+code depends on. The rebuild body was replaced by edit, not revert.
+
+The 2026-07-24 checkpoint commit (this handoff) carries the pivot on top: `Component.h`,
+`Page.cpp/.h`, `RetroFE.cpp`, `Scripts/test_fixture.ps1`. When slice 1 is confirmed and the branch
+is eventually cleaned for a PR, squash `ad7d78e` + the pivot commit together so the "rebuild then
+pivot" churn collapses into one coherent "layout hot-reload" change — the cherry-pick-off-upstream
+recipe in §7 handles that naturally.
