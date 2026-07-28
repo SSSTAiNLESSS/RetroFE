@@ -36,10 +36,11 @@ docs/*.md
 # docs/ is deliberately PARTIALLY tracked. The rule:
 #   engine design docs are tracked; reference material and agent tooling are not.
 # Tracked (do not add ignores that would catch these):
+#   docs/RetroFE/Git-Operating-Procedure.md
 #   docs/RetroFE/Layout-Hot-Reload-Blueprint.md
 #   docs/RetroFE/RetroFE Modernization and Performance.md
 # Ignored below: upstream manuals, wiki mirrors and the binaries that come with
-# them. This repo is already ~1.2 GB of git objects, so reference material that
+# them. This repo is already ~360 MiB of git objects, so reference material that
 # can be re-downloaded stays out of history.
 docs/RetroFE_Wiki/
 docs/RetroFE/retrofe_clean_manual.md

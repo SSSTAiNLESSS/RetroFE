@@ -2,6 +2,12 @@
 
 Session checkpoint for a fresh context window. Read this first, then `CLAUDE.md`.
 
+> 🧭 **Claude owns git in this repo — STAiNLESS has explicitly delegated it (2026-07-28).**
+> Before any branch, remote, merge or PR decision, read
+> **`docs/RetroFE/Git-Operating-Procedure.md`**. It carries the standing decisions (already
+> interviewed — do not re-ask), the five-step intake rule for "let's make X", and the
+> two-track local/remote trap in §3. Decide and state; never make STAiNLESS choose a base.
+
 **Last updated:** 2026-07-28
 **Branch at handover:** `feature/layout-hot-reload` (cut from
 `feature/data-modernization` @ `ecea8ab`)
@@ -408,16 +414,26 @@ not 563 KB. Mechanics, if ever needed again: `M:\CORE - TYPE R\.claude\KNOWLEDGE
 
 ## 5. Branch map
 
+> **Corrected 2026-07-28.** Until this session *no local branch had upstream tracking set*, so
+> the "in sync" claims below could never have been verified and two of them were wrong. Tracking
+> is now configured on all nine branches and the table reflects measured state.
+> Full detail: `docs/RetroFE/Git-Operating-Procedure.md` §3.
+
 | Branch | Tip | State |
 |---|---|---|
-| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher is next; **not pushed** |
-| `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **not pushed** |
+| `feature/layout-hot-reload` | see §1 | **current branch**; slice 1 (tween-reapply hot-reload) **built + confirmed on-rig**; guard bug fixed; watcher is next; **pushed 2026-07-28**, in sync |
+| `feature/data-modernization` | `ecea8ab` | parent of the above; source of the live CORE exe; **pushed 2026-07-28** (was local-only with no backup), in sync |
 | `feature/vlc-replacement` | `06de5ed` | in sync with origin ✅ |
-| `feature/mixed-collections` | `2acf7b6` | in sync with origin |
+| `feature/mixed-collections` | `2acf7b6` | in sync with origin ✅ |
 | `master` | `75bdeea` | **not** a clean upstream mirror — `upstream/master` + 3 local commits. See §7 |
 
-Others: `feature/playlist-menu-wheel`, `feature/reverse-launcher-mapping`,
-`feature/sort-and-filter`, `fix/tween-easing-bugs` — all local ahead of origin.
+⚠️ **`feature/playlist-menu-wheel`, `feature/reverse-launcher-mapping`,
+`feature/sort-and-filter`, `fix/tween-easing-bugs` are DIVERGED, not merely "ahead".**
+Each is ahead 5–6 / behind 2–3. The `origin` copies are **clean cherry-picks off
+`upstream/master` with no junk binaries — already PR-ready**; the local copies carry the
+`d11032c` junk history. Same content, different bases. **Do not `git pull` them** — there is
+nothing to fetch and a merge would tangle two histories. Procedure doc §3 has the table and the
+recommended `pr/*` rename (which needs STAiNLESS's OK first).
 
 ~~Suggested next branch~~ **Done 2026-07-23:** `feature/layout-hot-reload` was cut from
 `feature/data-modernization` (not `master`) — otherwise the editor build loses the libVLC work
@@ -542,6 +558,14 @@ A plain `git gc --prune=now --aggressive` is safe and reclaimed ~17 MiB with no 
 
 ### The fix, when PRs are actually wanted
 
+> **Update 2026-07-28: this has ALREADY been done for four branches.** `origin`'s copies of
+> `fix/tween-easing-bugs`, `feature/playlist-menu-wheel`, `feature/reverse-launcher-mapping`
+> and `feature/sort-and-filter` are clean cherry-picks 2–3 commits off `upstream/master`,
+> carrying no junk — verified by `merge-base --is-ancestor`. They were pushed under the plain
+> branch names instead of `pr/*`, which is why those four now show as diverged from their
+> local build-track counterparts (§5). If a PR is wanted for any of them, it is already on
+> GitHub — just open it. See `docs/RetroFE/Git-Operating-Procedure.md` §3.
+
 Do **not** rewrite history on branches already pushed to `origin`. Instead cut clean PR
 branches straight off `upstream/master` and cherry-pick:
 
@@ -574,6 +598,12 @@ That last relationship is verified: `mixed-collections` is a direct ancestor of
 `data-modernization`, so it would have to land upstream first, or a PR carries both.
 
 ### Still missing: an integration branch
+
+> **Decided 2026-07-28: STAiNLESS wants one, deferred until the settings-reboot-restore
+> feature lands** — merging five branches and building a new feature at once would make any
+> failure impossible to attribute. Merge order and the expected conflict are recorded in
+> `docs/RetroFE/Git-Operating-Procedure.md` §6.
+
 
 Nothing currently combines tween fixes + playlist wheel + launcher mapping + sort/filter into
 one shippable build. `feature/data-modernization` is the biggest branch but does **not**
